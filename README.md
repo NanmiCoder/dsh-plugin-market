@@ -109,6 +109,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-market
 ```sh
 cp .env.example .env          # 填入 ANTHROPIC_API_KEY（.env 已 gitignore）
 pnpm crawl:dry                # 全量跑但写 .tmp/，不碰 data/
+node tools/crawler/cli.ts --topic dsh-plugin --limit 30   # 小样本调试；--limit 同样只写 .tmp/
 pnpm crawl:rules              # 只跑规则，零模型开销
 pnpm crawl                    # 完整：采集 + 分级 + 打标
 pnpm refresh                  # 上面这条 + 有变化才 commit & push

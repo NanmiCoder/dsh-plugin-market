@@ -6,7 +6,7 @@
  *
  *   --dry-run        write to .tmp/ instead of data/, and print a diff summary
  *   --no-llm         skip labelling entirely, reusing cached labels
- *   --limit N        stop after N candidates (development)
+ *   --limit N        stop after N candidates (development; forces output to .tmp/)
  *   --topic T        sweep only this topic (repeatable)
  *   --force          bypass the labelling budget cap
  *   --budget N       GraphQL point ceiling (default 900)
@@ -281,7 +281,7 @@ async function main(): Promise<void> {
   })
 
   entries.sort((a, b) => b.score - a.score)
-  writeOutputs(entries, labels, options.dryRun)
+  writeOutputs(entries, labels, options.dryRun, options.limit !== undefined)
 }
 
 /**
@@ -311,8 +311,16 @@ function readPreviousLabels(): Map<string, CachedLabel> {
  */
 function writeOutputs(
   entries: readonly CatalogEntry[], labels: Map<string, CachedLabel>, dryRun: boolean,
+  truncated = false,
 ): void {
-  const outputDir = join(ROOT, dryRun ? '.tmp/data/v1' : DATA_DIR)
+  // `--limit` exists to make a development run cheap, and a development run
+  // must never become the published catalog: its output is a deliberately
+  // truncated slice, and writing it over data/ silently replaces thousands of
+  // entries with a few dozen. Redirect it the same way --dry-run is redirected.
+  const outputDir = join(ROOT, dryRun || truncated ? '.tmp/data/v1' : DATA_DIR)
+  if (truncated && !dryRun) {
+    log('emit: --limit produces a partial catalog, so writing to .tmp/ instead of data/')
+  }
   mkdirSync(outputDir, { recursive: true })
 
   // contentHash deliberately excludes generatedAt: it is the "did anything
