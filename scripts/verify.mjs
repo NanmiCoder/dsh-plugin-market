@@ -167,7 +167,10 @@ const validLabel = {
 }
 check('accepts a valid label', 'label' in validateLabel(validLabel))
 check('rejects a non-object reply', 'errors' in validateLabel('nope'))
-check('rejects an unknown category', 'errors' in validateLabel({ ...validLabel, category: 'invented' }))
+const badCat = validateLabel({ ...validLabel, category: 'invented' })
+check('an unknown category falls back to other', badCat.label?.category === 'other')
+check('the unknown category is reported as drift', badCat.droppedCategory === 'invented')
+check('a valid category is not reported as drift', validateLabel(validLabel).droppedCategory === undefined)
 const drift = validateLabel({ ...validLabel, tags: ['git', 'not-a-real-tag'] })
 check('keeps the label when a tag is invented', 'label' in drift)
 check('drops the out-of-vocabulary tag', drift.label?.tags.join(',') === 'git')
@@ -178,6 +181,18 @@ check('clamps confidence', validateLabel({ ...validLabel, confidence: 5 }).label
 check('keeps a short readme intact', clipReadme('# Title\n\nShort body.') === '# Title\n\nShort body.')
 check('trims a long readme', clipReadme('x'.repeat(20000)).length < 4200)
 check('strips image markup', !clipReadme('![alt](https://example.com/a.png)\n\ntext').includes('example.com'))
+
+// A truncated README can end mid-emoji; the resulting lone surrogate makes the
+// API reject the whole request with "unexpected end of hex escape".
+const { sanitizeForTransport } = await import('../tools/crawler/label.ts')
+const lone = `ok${String.fromCharCode(0xD83D)}tail`
+check('strips a lone surrogate', !/[\uD800-\uDFFF]/.test(sanitizeForTransport(lone)))
+check('sanitized text survives JSON', (() => {
+  try { JSON.parse(JSON.stringify({ t: sanitizeForTransport(lone) })); return true } catch { return false }
+})())
+check('keeps a valid surrogate pair', sanitizeForTransport('hi \u{1F389}') === 'hi \u{1F389}')
+check('strips C0 controls', sanitizeForTransport(`a${String.fromCharCode(0)}b`) === 'ab')
+check('keeps newline and tab', sanitizeForTransport('a\nb\tc') === 'a\nb\tc')
 
 const { score } = await import('../tools/crawler/score.ts')
 const base = { ...goodEntry, readmeBytes: 4000, license: 'MIT' }

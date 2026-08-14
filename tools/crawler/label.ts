@@ -153,6 +153,29 @@ export function candidateId(candidate: Candidate): string {
 }
 
 /**
+ * Strip characters that cannot survive JSON transport.
+ *
+ * READMEs are arbitrary bytes from strangers' repositories. A lone surrogate —
+ * half of an emoji pair, usually from a truncated fetch, and this pipeline
+ * truncates every README at 8 KB — serializes into an escape the endpoint
+ * rejects outright: `400 … unexpected end of hex escape`. That fails the whole
+ * request, so the entry degrades over a single stray byte. Unpaired surrogates
+ * and C0 control characters are therefore removed before the text is ever put
+ * in a message.
+ * @param text - untrusted text bound for the API.
+ * @returns text safe to serialize.
+ */
+export function sanitizeForTransport(text: string): string {
+  return text
+    // Surrogates not part of a valid pair, in either direction.
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+    // C0 controls except tab/newline/carriage return.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+}
+
+/**
  * Trim a README down to what is worth paying for.
  *
  * READMEs average ~25 KB; badges, image links and long tables carry almost no
@@ -181,7 +204,7 @@ export function clipReadme(raw: string): string {
 function buildPrompt(candidate: Candidate): string {
   const repo = candidate.repo
   const manifest = candidate.manifest
-  return [
+  const body = [
     '## PLUGIN',
     `repo: ${repo.nameWithOwner}${candidate.subdir === undefined ? '' : ` (subdir: ${candidate.subdir})`}`,
     `npm: ${candidate.npm?.name ?? 'unpublished'}`,
@@ -197,6 +220,8 @@ function buildPrompt(candidate: Candidate): string {
     '## README',
     candidate.readme === undefined ? '(no README found)' : clipReadme(candidate.readme.text),
   ].join('\n')
+  // One choke point: every byte that reaches the API passes through here.
+  return sanitizeForTransport(body)
 }
 
 /**
@@ -205,24 +230,35 @@ function buildPrompt(candidate: Candidate): string {
  * The schema is sent to the model, but the model is not bound by it — enum
  * drift and missing fields both happen. This is the enforcement point.
  *
- * Severity is deliberately split. A missing summary or an unusable category
- * means there is no classification, so the entry degrades. An invented tag does
- * not: tags are a secondary filter, and discarding a whole good classification
- * because one tag was hallucinated loses far more than it protects. Out-of-
- * vocabulary tags are therefore dropped and reported as drift — the closed
- * vocabulary still holds, since no invented tag ever reaches the catalog.
+ * Severity is deliberately split by what the field is worth. Only the summaries
+ * are load-bearing — without them there is no classification to publish, so a
+ * missing one degrades the entry. Everything else has a safe default and is
+ * reported as drift instead:
+ *
+ *   - An out-of-enum category becomes `other`. A miscategorised entry is
+ *     strictly better than a degraded one, and the model reaches outside the
+ *     enum often enough at scale (18 of the first few hundred) that failing on
+ *     it would throw away good summaries wholesale.
+ *   - An invented tag is dropped. Tags are a secondary filter; discarding a
+ *     whole good classification over one hallucinated tag loses far more than
+ *     it protects.
+ *
+ * The closed vocabulary still holds either way — nothing invented ever reaches
+ * the catalog. The drift is logged, because a value the model keeps reaching
+ * for is the strongest signal for what the next vocabulary should contain.
  * @param value - the tool call input.
- * @returns the label plus any dropped tags, or a list of problems.
+ * @returns the label plus whatever drifted, or a list of problems.
  */
 export function validateLabel(
   value: unknown,
-): { label: Label, droppedTags: string[] } | { errors: string[] } {
+): { label: Label, droppedTags: string[], droppedCategory?: string } | { errors: string[] } {
   const errors: string[] = []
   if (typeof value !== 'object' || value === null) return { errors: ['reply is not an object'] }
   const row = value as Record<string, unknown>
-  const category = typeof row.category === 'string' && (CATEGORIES as readonly string[]).includes(row.category)
-    ? row.category
-    : (errors.push(`category must be one of ${CATEGORIES.join('|')}`), 'other')
+  const offeredCategory = typeof row.category === 'string' ? row.category : ''
+  const categoryOk = (CATEGORIES as readonly string[]).includes(offeredCategory)
+  const category = categoryOk ? offeredCategory : 'other'
+  const droppedCategory = categoryOk || offeredCategory === '' ? undefined : offeredCategory
   const offered = Array.isArray(row.tags)
     ? row.tags.filter((tag): tag is string => typeof tag === 'string')
     : []
@@ -234,6 +270,7 @@ export function validateLabel(
   if (summaryEn === '') errors.push('summaryEn is required')
   if (errors.length > 0) return { errors }
   return {
+    droppedCategory,
     label: {
       category,
       tags,
@@ -362,10 +399,14 @@ async function labelOne(
       log(`label: ${candidateId(candidate)} produced an invalid label: ${validated.errors.join('; ')}`)
       return undefined
     }
-    if (validated.droppedTags.length > 0) {
-      // Vocabulary drift, not a failure. Worth seeing: a tag the model keeps
+    const drift = [
+      ...validated.droppedTags.map(tag => `tag:${tag}`),
+      ...(validated.droppedCategory === undefined ? [] : [`category:${validated.droppedCategory}`]),
+    ]
+    if (drift.length > 0) {
+      // Vocabulary drift, not a failure. Worth seeing: a value the model keeps
       // reaching for is a candidate for the next VOCAB_VERSION.
-      log(`label: dropped out-of-vocabulary tags from ${candidateId(candidate)}: ${validated.droppedTags.join(', ')}`)
+      log(`label: drift on ${candidateId(candidate)}: ${drift.join(', ')}`)
     }
     return {
       label: validated.label,
