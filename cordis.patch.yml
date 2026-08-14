@@ -1,0 +1,22 @@
+# dsh-plugin-hub bundle patch: mounts the plugin marketplace into the host
+# composition of a dsh profile. The plugin serves a curated catalog of DSH
+# plugins over its own HTTP routes and contributes a "market" tab to the Web
+# UI's Settings > Plugins section, from which a plugin can be installed into
+# (or removed from) the running profile.
+#
+# Install: `dsh plugin --profile <name> add dsh-plugin-hub` (npm or a local
+# path). The `dsh plugin` command pnpm-installs the package into the profile
+# and reconciles it into the profile's `dsh.profile.bundles` layer list.
+- insert:
+    - id: plugin-hub
+      name: dsh-plugin-hub
+      config:
+        # Catalog source. While the data repository is private this stays on
+        # the packaged seed snapshot; switch to the raw.githubusercontent URL
+        # once the repository is public.
+        registryUrl: ''
+        # Background catalog refresh interval, in hours.
+        refreshIntervalHours: 6
+        # Set false to make the marketplace browse-only: no install or
+        # uninstall route will act, regardless of what the UI sends.
+        allowInstall: true

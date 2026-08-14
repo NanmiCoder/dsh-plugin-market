@@ -1,0 +1,87 @@
+{
+  "name": "dsh-plugin-hub",
+  "version": "0.1.0",
+  "description": "Plugin marketplace for DeepSeek Harness: browse a verified, auto-curated catalog of DSH plugins and install them into your runtime with one click, from the Web UI settings",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "assets",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NanmiCoder/dsh-plugin-market.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "plugin-marketplace"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "dshClient": {
+    "inject": [
+      "@deepseek-ai/dsh-client-locale",
+      "@deepseek-ai/dsh-client-runtime",
+      "@deepseek-ai/dsh-client-ui-settings"
+    ],
+    "platform": "web"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "verify": "node scripts/verify.mjs",
+    "crawl": "node --experimental-strip-types tools/crawler/src/cli.ts",
+    "crawl:dry": "node --experimental-strip-types tools/crawler/src/cli.ts --dry-run"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1-rc.1",
+    "@deepseek-ai/dsh-app-boot": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-locale": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-runtime": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.0.1-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.1-rc.1",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "^19.2.4",
+    "lightningcss": "^1.33.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsdown": "0.22.2",
+    "typescript": "^5.9.3"
+  }
+}
