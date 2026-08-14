@@ -336,9 +336,12 @@ function compact(entry: CatalogEntry): Partial<CatalogEntry> {
     id: entry.id,
     repo: entry.repo,
     owner: entry.owner,
-    url: entry.url,
+    // `url` is omitted: it is always https://github.com/<repo>, and at ~1700
+    // entries that redundancy is 7% of the document. The UI rebuilds it.
     description: entry.description,
-    manualSteps: entry.manualSteps,
+    // `manualSteps` is omitted for the same reason: they are a fixed
+    // clone-and-build recipe derived from repo and subdir, and the manual
+    // dialog already generates exactly that when the field is absent.
     tier: entry.tier,
     packageName: entry.packageName,
     installMethod: entry.installMethod,

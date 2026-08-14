@@ -10,7 +10,9 @@ DeepSeek Harness 的插件市场：在 Web UI 的「设置 → 插件市场」�
 
 ## 为什么需要它
 
-GitHub 上 `dsh-plugin` topic 目前有 **1278 个仓库**，但按 star 倒序看到的前 50 个里，只有 16 个的根 `package.json` 带 `dsh` 字段——排在最前面的是 PicGo-Core、mcp-for-stata 这类蹭 topic 的无关项目。而 0 star 的分片里，抽样 50 个有 42 个是真插件。
+GitHub 上 `dsh-plugin` topic 有 1300+ 个仓库，但按 star 倒序看到的前 50 个里，只有 16 个的根 `package.json` 带 `dsh` 字段——排在最前面的是 PicGo-Core、mcp-for-stata 这类蹭 topic 的无关项目。而 0 star 的分片里，抽样 50 个有 42 个是真插件。
+
+本项目一次全量采集（`dsh-plugin` + `deepseek-harness` + `dsh` 三个 topic）的实际结果：**1653 个仓库、1730 条目录条目，其中 257 条可一键 npm 安装、122 条可从源码安装**，总共只花了 151 个 GraphQL point（额度 5000/小时）。
 
 **star 排序与"是不是真插件"负相关，真插件全埋在长尾。** 这个市场解决的就是这件事。
 

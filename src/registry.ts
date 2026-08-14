@@ -91,15 +91,19 @@ function parseEntry(value: unknown): CatalogEntry | undefined {
   const row = value as Record<string, unknown>
   const { id, repo, owner, url, tier } = row
   if (typeof id !== 'string' || id === '') return undefined
-  if (typeof repo !== 'string' || typeof owner !== 'string' || typeof url !== 'string') return undefined
+  if (typeof repo !== 'string') return undefined
   if (typeof tier !== 'string' || !TIERS.includes(tier)) return undefined
+  // The published index omits fields it can derive, to keep the document the
+  // plugin fetches small; rebuild them rather than rejecting the row.
+  const resolvedUrl = typeof url === 'string' ? url : `https://github.com/${repo}`
+  const resolvedOwner = typeof owner === 'string' ? owner : (repo.split('/')[0] ?? '')
   const num = (key: string): number => (typeof row[key] === 'number' ? row[key] as number : 0)
   const str = (key: string): string | undefined => (typeof row[key] === 'string' ? row[key] as string : undefined)
   return {
     id,
     repo,
-    owner,
-    url,
+    owner: resolvedOwner,
+    url: resolvedUrl,
     tier: tier as Tier,
     packageName: str('packageName'),
     installMethod: (typeof row.installMethod === 'string' && METHODS.includes(row.installMethod)
