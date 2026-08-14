@@ -26,6 +26,9 @@ interface SearchPage {
 /** Raised when a slice returned fewer repositories than it declared. */
 export class SliceTruncated extends Error {}
 
+/** Raised for a GraphQL error that retrying cannot fix (bad query, dead token). */
+export class PermanentQueryError extends Error {}
+
 /** The repository fields every stage downstream depends on. */
 const REPO_FIELDS = `
   databaseId nameWithOwner description homepageUrl
@@ -128,23 +131,44 @@ export class GitHubClient {
         }
         const body = await response.json() as {
           data?: T & { rateLimit?: { cost: number, remaining: number } }
-          errors?: { type?: string, message: string }[]
+          errors?: { type?: string, message: string, path?: (string | number)[] }[]
         }
-        if (body.errors !== undefined && body.errors.length > 0) {
-          const rateLimited = body.errors.some(error => error.type === 'RATE_LIMITED')
-          if (rateLimited) {
-            this.log('github: rate limited, waiting 60s')
-            await sleep(60_000)
-            continue
+        const errors = body.errors ?? []
+        if (errors.some(error => error.type === 'RATE_LIMITED')) {
+          this.log('github: rate limited, waiting 60s')
+          await sleep(60_000)
+          continue
+        }
+        // GraphQL answers partially: a batched query naming twenty repositories
+        // returns the nineteen that resolved, with the twentieth as null and a
+        // NOT_FOUND beside it. Repositories are deleted and renamed between the
+        // discovery pass and the passes that follow, so this is routine — and
+        // throwing the whole response away would lose nineteen good results and,
+        // after retries, the entire run. Take the data whenever there is data.
+        if (body.data !== null && body.data !== undefined) {
+          if (errors.length > 0) {
+            const summary = errors
+              .map(error => `${error.type ?? 'ERROR'}${error.path === undefined ? '' : ` at ${error.path.join('.')}`}`)
+              .join(', ')
+            this.log(`github: partial response (${errors.length} unresolved: ${summary})`)
           }
-          throw new Error(body.errors.map(error => error.message).join('; '))
+          this.spent += body.data.rateLimit?.cost ?? 1
+          await sleep(250)
+          return body.data
         }
-        if (body.data === undefined) throw new Error('github: empty response data')
-        this.spent += body.data.rateLimit?.cost ?? 1
-        // Constant spacing keeps well clear of the secondary rate limit.
-        await sleep(250)
-        return body.data
+        if (errors.length > 0) {
+          // No data at all. A malformed query or a revoked token will never
+          // succeed, so fail immediately rather than burning the retry budget.
+          const permanent = errors.some(error =>
+            error.type === 'NOT_FOUND' || error.type === 'FORBIDDEN' || error.type === undefined)
+          const message = errors.map(error => error.message).join('; ')
+          if (permanent) throw new PermanentQueryError(`github: ${message}`)
+          throw new Error(message)
+        }
+        throw new Error('github: empty response data')
       } catch (error: unknown) {
+        // Retrying a permanent error only delays the same failure.
+        if (error instanceof PermanentQueryError) throw error
         lastError = error
         const backoff = 1000 * 2 ** attempt
         this.log(`github: request failed (${String(error)}), retrying in ${backoff}ms`)

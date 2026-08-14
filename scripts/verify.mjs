@@ -159,6 +159,45 @@ const neverStops = { count: async () => 5000 }
 const bounded = await planSlices('topic:x', neverStops, () => {})
 check('planner terminates when a window cannot be split', bounded.length > 0 && bounded.length < 500)
 
+console.log('\n4c/6 GraphQL partial responses')
+const { GitHubClient, PermanentQueryError } = await import('../tools/crawler/github.ts')
+const realFetch = globalThis.fetch
+/**
+ * Run one client call against a stubbed endpoint.
+ * @param {object} body - the JSON body the endpoint should return.
+ * @returns {Promise<{data?: unknown, error?: Error}>} the outcome.
+ */
+async function withStubbedFetch(body) {
+  globalThis.fetch = async () => new Response(JSON.stringify(body), {
+    status: 200, headers: { 'content-type': 'application/json' },
+  })
+  try {
+    const client = new GitHubClient('t', 50, () => {})
+    return { data: await client.graphql('query{x}', {}) }
+  } catch (error) {
+    return { error }
+  } finally {
+    globalThis.fetch = realFetch
+  }
+}
+
+// A batched query naming 20 repositories returns the ones that resolved plus a
+// NOT_FOUND for any deleted between passes. Discarding that response loses 19
+// good results and, after retries, killed an entire 168-point run.
+const partial = await withStubbedFetch({
+  data: { rateLimit: { cost: 1 }, r0: { nameWithOwner: 'a/b' }, r1: null },
+  errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a Repository', path: ['r1'] }],
+})
+check('keeps partial data when one alias is NOT_FOUND', partial.data?.r0?.nameWithOwner === 'a/b')
+check('reports the dead alias as null, not an error', partial.data?.r1 === null)
+
+const noData = await withStubbedFetch({
+  errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a Repository' }],
+})
+check('throws when there is no data at all', noData.error !== undefined)
+check('a NOT_FOUND with no data is permanent, not retried',
+  noData.error instanceof PermanentQueryError, String(noData.error))
+
 console.log('\n5/6 label validation and scoring')
 const { validateLabel, clipReadme } = await import('../tools/crawler/label.ts')
 const validLabel = {
