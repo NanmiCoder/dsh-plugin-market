@@ -81,7 +81,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-market
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
-| `registryUrl` | `''` | 已发布目录的 URL。为空时只用包内种子快照。仓库转公开后填 `https://raw.githubusercontent.com/NanmiCoder/dsh-plugin-market/main/data/v1/catalog.json` |
+| `registryUrl` | `''` | 已发布目录的 URL。为空时只用包内种子快照。仓库转公开后填 `https://raw.githubusercontent.com/NanmiCoder/dsh-plugin-market/main/data/v1/index.json`（`index.json` 已包含 UI 渲染所需的全部字段，体积约为 `catalog.json` 的四分之一；`catalog.json` 保留完整字段供审计） |
 | `refreshIntervalHours` | `6` | 后台刷新间隔，`0` 关闭定时刷新 |
 | `allowInstall` | `true` | 设为 `false` 后所有变更路由一律拒绝，退化为纯浏览 |
 | `profileDir` | 由 `ctx.baseUrl` 推导 | 逃生阀，正常不需要设置 |

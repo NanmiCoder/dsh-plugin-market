@@ -20,15 +20,23 @@ const CONCURRENCY = 12
 
 /**
  * Fetch the head of a candidate's README.
+ *
+ * `known` short-circuits the filename search. The discovery query already
+ * returns each repository's root tree, so for a root-level candidate the
+ * README's real name is known and exactly one request is needed. Guessing
+ * costs six sequential round trips for every repository that has no
+ * `README.md`, which is most of the slow half of a full sweep.
  * @param repo - `owner/repo`.
  * @param subdir - directory within the repository, for monorepo children.
+ * @param known - the README filename, when the root tree revealed it.
  * @returns the README head and its hash, or undefined when none was found.
  */
 export async function fetchReadme(
-  repo: string, subdir?: string,
+  repo: string, subdir?: string, known?: string,
 ): Promise<{ text: string, sha: string } | undefined> {
   const prefix = subdir === undefined ? '' : `${subdir}/`
-  for (const file of README_CANDIDATES) {
+  const names = known !== undefined ? [known] : README_CANDIDATES
+  for (const file of names) {
     const url = `https://raw.githubusercontent.com/${repo}/HEAD/${prefix}${file}`
     try {
       const response = await fetch(url, {

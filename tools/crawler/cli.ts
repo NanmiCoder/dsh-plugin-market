@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { classify, extractSignals, monorepoDirectories, parseManifest } from './classify.ts'
-import { DATA_DIR, SCHEMA_VERSION, TOPICS } from './config.ts'
+import { DATA_DIR, README_CANDIDATES, SCHEMA_VERSION, TOPICS } from './config.ts'
 import { fetchNpmFacts, fetchReadme, githubRepoFromUrl, mapLimit, searchNpm } from './enrich.ts'
 import { drainSlice, fetchSubPackages, GitHubClient, planSlices } from './github.ts'
 import { BudgetExceeded, candidateId, labelAll } from './label.ts'
@@ -134,8 +134,20 @@ async function main(): Promise<void> {
   })
 
   // ---- READMEs -------------------------------------------------------------
-  const readmes = await mapLimit(candidates, async candidate =>
-    await fetchReadme(candidate.repo.nameWithOwner, candidate.subdir))
+  const readmes = await mapLimit(candidates, async (candidate) => {
+    // Root-level candidates: the discovery query already told us the exact
+    // filename, so skip the six-way guess entirely. A repository whose root
+    // tree holds no README at all needs no request.
+    if (candidate.subdir === undefined) {
+      const names = new Set((candidate.repo.rootTree?.entries ?? [])
+        .filter(entry => entry.type === 'blob')
+        .map(entry => entry.name))
+      const known = README_CANDIDATES.find(name => names.has(name))
+      if (known === undefined) return undefined
+      return await fetchReadme(candidate.repo.nameWithOwner, undefined, known)
+    }
+    return await fetchReadme(candidate.repo.nameWithOwner, candidate.subdir)
+  })
   readmes.forEach((readme, index) => {
     const candidate = candidates[index]
     if (candidate !== undefined && readme !== undefined) candidate.readme = readme
@@ -309,7 +321,13 @@ function writeOutputs(
 }
 
 /**
- * Reduce an entry to the fields the list view needs.
+ * Reduce an entry to the fields the marketplace UI actually renders.
+ *
+ * This is the document the plugin fetches at runtime, so it must be complete
+ * enough to render a card without a second request: everything the UI reads is
+ * kept, and only the fields that exist purely for auditing and scoring
+ * provenance (issue and commit counts, fork flags, release timestamps) are
+ * dropped. Roughly a quarter the size of the full catalog.
  * @param entry - the full entry.
  * @returns the compact form.
  */
@@ -317,7 +335,10 @@ function compact(entry: CatalogEntry): Partial<CatalogEntry> {
   return {
     id: entry.id,
     repo: entry.repo,
+    owner: entry.owner,
     url: entry.url,
+    description: entry.description,
+    manualSteps: entry.manualSteps,
     tier: entry.tier,
     packageName: entry.packageName,
     installMethod: entry.installMethod,
