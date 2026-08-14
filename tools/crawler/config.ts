@@ -97,11 +97,25 @@ export const PROMPT_VERSION = 'p1'
 /** Bumped when CATEGORIES or TAGS change; invalidates every cached label. */
 export const VOCAB_VERSION = 'v1'
 
-/** Labelling model. */
-export const LLM_MODEL = 'deepseek-v4-flash'
+/**
+ * Labelling model.
+ *
+ * Served through the Anthropic-compatible endpoint below, which also accepts
+ * Claude model names and maps them (`claude-opus-5` resolves to
+ * `deepseek-v4-pro`). Labelling is bulk classification, so the flash tier is
+ * both sufficient and the right cost point; name it explicitly rather than
+ * relying on the alias mapping.
+ */
+export const LLM_MODEL = process.env.LLM_MODEL ?? 'deepseek-v4-flash'
 
-/** DeepSeek chat completions endpoint. */
-export const LLM_ENDPOINT = 'https://api.deepseek.com/chat/completions'
+/**
+ * Base URL for the Anthropic SDK.
+ *
+ * Measured: this project's key returns 403 on api.anthropic.com and 200 on
+ * DeepSeek's Anthropic-compatible endpoint. Override with `LLM_BASE_URL` — a
+ * genuine `sk-ant-…` key wants `https://api.anthropic.com`.
+ */
+export const LLM_BASE_URL = process.env.LLM_BASE_URL ?? 'https://api.deepseek.com/anthropic'
 
 /**
  * Ceiling on labelling calls per incremental run.

@@ -168,10 +168,10 @@ const validLabel = {
 check('accepts a valid label', 'label' in validateLabel(validLabel))
 check('rejects a non-object reply', 'errors' in validateLabel('nope'))
 check('rejects an unknown category', 'errors' in validateLabel({ ...validLabel, category: 'invented' }))
-check(
-  'drops tags outside the vocabulary',
-  'errors' in validateLabel({ ...validLabel, tags: ['git', 'not-a-real-tag'] }),
-)
+const drift = validateLabel({ ...validLabel, tags: ['git', 'not-a-real-tag'] })
+check('keeps the label when a tag is invented', 'label' in drift)
+check('drops the out-of-vocabulary tag', drift.label?.tags.join(',') === 'git')
+check('reports the dropped tag as drift', drift.droppedTags?.join(',') === 'not-a-real-tag')
 check('caps tags at six', (validateLabel({ ...validLabel, tags: Array(9).fill('git') }).label?.tags.length ?? 9) <= 6)
 check('requires both summaries', 'errors' in validateLabel({ ...validLabel, summaryZh: '' }))
 check('clamps confidence', validateLabel({ ...validLabel, confidence: 5 }).label?.confidence === 1)

@@ -66,9 +66,38 @@ function parseArgs(argv: readonly string[]): Options {
 
 const log = (line: string): void => { console.log(line) }
 
+/**
+ * Load `.env` from the repository root if one exists.
+ *
+ * The crawler runs from a local scheduled job, so the key lives in a gitignored
+ * file rather than a CI secret. Missing file is not an error — the environment
+ * may already carry the variables.
+ */
+function loadDotEnv(): void {
+  try {
+    process.loadEnvFile(join(ROOT, '.env'))
+  } catch {
+    // No .env, or it is unreadable: fall through to the ambient environment.
+  }
+}
+
+/**
+ * Resolve the LLM API key.
+ *
+ * `ANTHROPIC_API_KEY` is what the Anthropic SDK itself looks for, so it is the
+ * primary name; `DEEPSEEK_API_KEY` is accepted because the key that actually
+ * works here is a DeepSeek one served over the Anthropic-compatible endpoint.
+ * @returns the key, or undefined when neither is set.
+ */
+function resolveApiKey(): string | undefined {
+  const key = process.env.ANTHROPIC_API_KEY ?? process.env.DEEPSEEK_API_KEY
+  return key === undefined || key === '' ? undefined : key
+}
+
 /** Run the pipeline. */
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2))
+  loadDotEnv()
   const token = process.env.GITHUB_TOKEN
   if (token === undefined || token === '') {
     console.error('GITHUB_TOKEN is required (try: GITHUB_TOKEN=$(gh auth token))')
@@ -173,9 +202,9 @@ async function main(): Promise<void> {
     }
     log(`label: skipped (--no-llm), ${labels.size} reused from cache`)
   } else {
-    const apiKey = process.env.DEEPSEEK_API_KEY
-    if (apiKey === undefined || apiKey === '') {
-      console.error('DEEPSEEK_API_KEY is required (or pass --no-llm)')
+    const apiKey = resolveApiKey()
+    if (apiKey === undefined) {
+      console.error('ANTHROPIC_API_KEY (or DEEPSEEK_API_KEY) is required — put it in .env, or pass --no-llm')
       process.exit(1)
     }
     try {
@@ -183,7 +212,10 @@ async function main(): Promise<void> {
         apiKey, previous, force: options.force, log,
       })
       labels = result.labels
-      log(`label: ${result.called} called, ${result.cached} cached, ${result.failed} degraded`)
+      log(
+        `label: ${result.called} called, ${result.cached} cached, ${result.failed} degraded`
+        + ` (${result.inputTokens} in / ${result.outputTokens} out tokens)`,
+      )
     } catch (error: unknown) {
       if (error instanceof BudgetExceeded) {
         console.error(`\n${error.message}`)

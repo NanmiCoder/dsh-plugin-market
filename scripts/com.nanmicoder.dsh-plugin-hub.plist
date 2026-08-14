@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd job: refresh the catalog every two hours on this machine.
+
+  Install:
+    cp scripts/com.nanmicoder.dsh-plugin-hub.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.nanmicoder.dsh-plugin-hub.plist
+
+  Run once now:      launchctl start com.nanmicoder.dsh-plugin-hub
+  Check it is loaded: launchctl list | grep dsh-plugin-hub
+  Stop:              launchctl unload ~/Library/LaunchAgents/com.nanmicoder.dsh-plugin-hub.plist
+
+  Edit WorkingDirectory and the node path below if the checkout moves or you
+  use a different node install. launchd does not read your shell profile, so
+  PATH is set explicitly — `gh` must be on it for the token lookup to work.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nanmicoder.dsh-plugin-hub</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>/Users/nanmi/workspace/myself_code/dsh-plugin-market/scripts/refresh.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/nanmi/workspace/myself_code/dsh-plugin-market</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- Every two hours. launchd skips firings while the machine is asleep and
+       runs once on wake, which is the behaviour we want: a laptop that was
+       closed overnight refreshes when it opens rather than backfilling. -->
+  <key>StartInterval</key>
+  <integer>7200</integer>
+
+  <!-- Do not fire at load time; the first run happens one interval later.
+       Use `launchctl start` for an immediate run. -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/nanmi/workspace/myself_code/dsh-plugin-market/.logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/nanmi/workspace/myself_code/dsh-plugin-market/.logs/launchd.err.log</string>
+</dict>
+</plist>

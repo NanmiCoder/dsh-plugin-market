@@ -34,7 +34,7 @@ GitHub 上 `dsh-plugin` topic 有 1300+ 个仓库，但按 star 倒序看到的�
 > 1. **槽位用 `settings.section` 而不是 `settings.plugins.tab`。** 后者只存在于较新的 DSH 构建；当前部署的运行时（`staging-20260811`）的设置面板只提供 `settings.trigger / header / action / close / section / onboarding`，根本没有插件分区。注册到没有宿主的槽位不会报错，只会**静默不渲染**。`settings.section` 在两种构建里都有。
 > 2. **路由前缀用 `/plugin-hub` 而不是 `/plugins/dsh-plugin-hub`。** 后者属于 client-module 注册表，它从 `/plugins/<id>/client.js` 提供每个插件的浏览器 bundle；在那里注册 prefix 路由会**遮蔽掉本插件自己的 bundle**，表现为 UI 完全加载不出来。
 
-数据流：**GitHub GraphQL + npm registry → 规则分级 → 大模型打标 → `data/v1/*.json` → 插件端 ETag 拉取 → 与本地已安装状态合并 → UI**。
+数据流：**GitHub GraphQL + npm registry → 规则分级 → 大模型打标 → `data/v1/*.json` → 插件端 ETag 拉取 → 与本地已安装状态合并 → UI**。整条管线跑在你自己的机器上（本地定时任务），产物 commit + push 到 GitHub，没有任何一步依赖 CI。
 
 安装流程：`pnpm add <spec>`（在 profile 目录）→ 按已安装状态对账 `dsh.profile.bundles`（决定**下次冷启动**）→ `ctx.loader.create()` 挂载插件行（**当场生效**）。两条路径互不干扰：热挂载只在内存里，冷启动只读 manifest，所以不会重复插入同一行。
 
@@ -104,15 +104,53 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-market
 
 ## 数据管线
 
+管线**完全跑在本机**，不部署到远程：
+
 ```sh
-GITHUB_TOKEN=$(gh auth token) node tools/crawler/cli.ts --no-llm            # 只跑规则，不花钱
-GITHUB_TOKEN=$(gh auth token) DEEPSEEK_API_KEY=sk-… node tools/crawler/cli.ts
-node tools/crawler/cli.ts --topic dsh-plugin --limit 60 --no-llm --dry-run  # 小样本，写 .tmp/
+cp .env.example .env          # 填入 ANTHROPIC_API_KEY（.env 已 gitignore）
+pnpm crawl:dry                # 全量跑但写 .tmp/，不碰 data/
+pnpm crawl:rules              # 只跑规则，零模型开销
+pnpm crawl                    # 完整：采集 + 分级 + 打标
+pnpm refresh                  # 上面这条 + 有变化才 commit & push
 ```
 
-CI（`.github/workflows/crawl.yml`）每 2 小时跑一次，只在 `contentHash` 变化时提交。`contentHash` 刻意不含 `generatedAt`，否则每次都会产生一个无意义的 commit。
+### 打标用的是 Anthropic 官方 SDK
 
-成本控制的枢纽是标签缓存键：它包含 README 哈希、manifest 摘要、描述与 topics，**但不含 `pushedAt`**——一个仓库连提 50 次代码却没动 README 和 manifest，就不会重复调用模型。`MAX_LLM_CALLS`（默认 300）是防止 prompt 改动导致一次性全量重标的闸门。
+`tools/crawler/label.ts` 用 `@anthropic-ai/sdk`。它连哪个端点由 `LLM_BASE_URL` 决定：
+
+| key 类型 | `LLM_BASE_URL` | 实际模型 |
+|---|---|---|
+| DeepSeek key（默认） | `https://api.deepseek.com/anthropic` | `deepseek-v4-flash` |
+| 真 `sk-ant-…` key | `https://api.anthropic.com` | 改 `LLM_MODEL` 为 `claude-opus-5` 等 |
+
+> 实测：同一把 DeepSeek key 在 `api.anthropic.com` 返回 403，在 DeepSeek 的 Anthropic 兼容端点返回 200。兼容端点还会把 Claude 模型名映射过去（`claude-opus-5` → `deepseek-v4-pro`），但打标是批量分类任务，显式用 flash 档更合适也更省。
+
+**结构化输出走工具调用，不是让模型"输出 JSON"。** 这里踩过两个实测的坑：
+
+1. `output_config.format`（Anthropic 结构化输出）在这个端点上**返回 200 但不生效** —— 我指定 `{category}`，它返回了完全不相干的字段。不能依赖。
+2. 强制 `tool_choice` 在 thinking 开启时被拒（`Thinking mode does not support this tool_choice`），所以显式 `thinking: {type:'disabled'}`。分类任务本来也不需要推理，省下的 thinking token 是成本大头。
+
+于是：**声明一个 `emit_label` 工具，用 `tool_choice` 强制调用，工具的 `input_schema` 就是输出契约**。这是 Messages API 保证输出形状的正规方式。
+
+标签校验分两档严重性：摘要缺失或分类不可用 → 该条降级；**模型编造的标签只丢弃标签本身，不作废整条分类**（标签是次要筛选维度，为一个瞎编的 tag 废掉一条好分类得不偿失）。被丢弃的标签会打日志——某个反复出现的词就是下次扩词表的候选。实测这一改把降级率从 25% 降到 0。
+
+### 成本控制
+
+枢纽是标签缓存键：它包含 README 哈希、manifest 摘要、描述与 topics，**但不含 `pushedAt`**——一个仓库连提 50 次代码却没动 README 和 manifest，就不会重复调用模型。`MAX_LLM_CALLS`（默认 300）是防止 prompt 改动导致一次性全量重标的闸门，首次全量需要 `--force` 显式越过。
+
+静态 system prompt 与工具 schema 在每次请求中字节一致，端点的前缀缓存因此生效：实测 20 条一批，输入 token 从 22172 降到 3521。
+
+### 本地定时任务
+
+```sh
+cp scripts/com.nanmicoder.dsh-plugin-hub.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.nanmicoder.dsh-plugin-hub.plist
+launchctl start com.nanmicoder.dsh-plugin-hub    # 立刻跑一次
+```
+
+每 2 小时跑一次 `scripts/refresh.sh`：只在 `contentHash` 变化时 commit（`contentHash` 刻意不含 `generatedAt`，否则每次都产生无意义 commit），push 失败只留本地 commit、下次自动带上。日志在 `.logs/`，保留最近 50 份。
+
+launchd 在机器睡眠期间不补跑、醒来后跑一次 —— 笔记本合盖过夜后开盖即刷新，正是想要的行为。
 
 ## 验证
 
@@ -124,6 +162,7 @@ CI（`.github/workflows/crawl.yml`）每 2 小时跑一次，只在 `contentHash
 - `pnpm build`：产出 `lib/` 与 `lib/client.js`（31.5 KB，closure-factory 协议正确）
 - `node scripts/verify.mjs`：**64 项断言全部通过**（目录解析与前向护栏、安装白名单、请求信任栅栏、分级规则、标签校验、打分、缓存往返）
 - `dsh --profile hub-check --dump-config`：组合树中出现 `id: plugin-hub` 及其 config
+- **大模型打标真实跑通**（Anthropic SDK → DeepSeek 兼容端点，`deepseek-v4-flash`）：20 条样本 **20 调用 / 0 降级**，分类、中英文摘要、标签质量经人工抽检；前缀缓存实测把输入 token 从 22172 降到 3521
 - 浏览器名册：`window.__DSH_BOOT__` 的 29 个条目中含 `dsh-plugin-hub`
 - `GET /plugins/dsh-plugin-hub/client.js?rev=…` → **200**（31553 字节）
 - `GET /plugin-hub/catalog` → 200，无远端数据时正确退化为 `source: "seed"`（路由前缀移出 `/plugins/*` 保留命名空间之后）
@@ -167,7 +206,6 @@ curl -s http://127.0.0.1:3081/plugin-hub/catalog | head -c 200
 - **pnpm 必须在 PATH 上**，否则安装返回退出码 127，UI 会提示"pnpm 不在 PATH"。
 - **git 源插件安装时会执行仓库自带的构建脚本**，pnpm 还可能要求先在 profile 的 `pnpm-workspace.yaml` 里 `allowBuilds` 放行——这等于允许该包在你机器上执行代码，所以这个决定必须由你做，插件不会代劳。
 - **带界面的插件装完要刷新页面**：浏览器端的 HMR 通道明确忽略插件图变更帧，新插件的 bundle 只会在下一次文档请求时进入名册。DSH 没有任何进程重启机制，所以这里只能提示刷新，不能承诺自动重启。
-- **大模型打标尚未端到端验证**：本机没有 `DEEPSEEK_API_KEY`，打标逻辑目前只有单元级验证（schema 校验、README 裁剪、缓存键、失败降级）。配好 key 后请先用 `--limit 20 --dry-run` 抽检标签质量再放全量。
 - **分级偏保守**：布局特殊的 monorepo 可能被降到 `likely-plugin`。宁可少标几个 verified，也不能让用户装到一个装不上的东西。
 - **`related` 目前是兜底分级**：所有带 topic 但无 bundle 的仓库都会落在这里，包括蹭 topic 的无关项目。它们靠打分惩罚与大模型的 spam 判定沉底，且默认筛选是「可一键安装」，所以不会干扰主流程。
 - **目录数据依赖仓库转公开**：`registryUrl` 现在默认为空（走包内种子），因为数据仓库仍是 private。转公开后只需改这一个默认值。
