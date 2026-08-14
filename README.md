@@ -12,7 +12,7 @@ DeepSeek Harness 的插件市场：在 Web UI 的「设置 → 插件市场」�
 
 GitHub 上 `dsh-plugin` topic 有 1300+ 个仓库，但按 star 倒序看到的前 50 个里，只有 16 个的根 `package.json` 带 `dsh` 字段——排在最前面的是 PicGo-Core、mcp-for-stata 这类蹭 topic 的无关项目。而 0 star 的分片里，抽样 50 个有 42 个是真插件。
 
-本项目一次全量采集（`dsh-plugin` + `deepseek-harness` + `dsh` 三个 topic）的实际结果：**1653 个仓库、1730 条目录条目，其中 257 条可一键 npm 安装、122 条可从源码安装**，总共只花了 151 个 GraphQL point（额度 5000/小时）。
+本项目一次全量采集（`dsh-plugin` + `deepseek-harness` + `dsh` 三个 topic）的实际结果：**1886 个仓库 → 1984 条目录条目，其中 306 条可一键 npm 安装、145 条可从源码安装**，采集只花了 172 个 GraphQL point（额度 5000/小时），全部 1984 条经大模型打标。
 
 **star 排序与"是不是真插件"负相关，真插件全埋在长尾。** 这个市场解决的就是这件事。
 
@@ -162,7 +162,8 @@ launchd 在机器睡眠期间不补跑、醒来后跑一次 —— 笔记本合�
 - `pnpm build`：产出 `lib/` 与 `lib/client.js`（31.5 KB，closure-factory 协议正确）
 - `node scripts/verify.mjs`：**64 项断言全部通过**（目录解析与前向护栏、安装白名单、请求信任栅栏、分级规则、标签校验、打分、缓存往返）
 - `dsh --profile hub-check --dump-config`：组合树中出现 `id: plugin-hub` 及其 config
-- **大模型打标真实跑通**（Anthropic SDK → DeepSeek 兼容端点，`deepseek-v4-flash`）：20 条样本 **20 调用 / 0 降级**，分类、中英文摘要、标签质量经人工抽检；前缀缓存实测把输入 token 从 22172 降到 3521
+- **大模型打标全量跑通**（Anthropic SDK → DeepSeek 兼容端点，`deepseek-v4-flash`）：**1984 条调用、5 条降级（0.25%）**，191 万输入 / 37 万输出 token；100% 条目带中英文摘要。降级的 5 条是模型偶发漏填摘要，重试同一条即成功
+- **词表漂移可观测**：507 条出现越界值，全部被纠正而非丢弃。统计后发现前几名（`agent-orchestration`/`ui-experience`/`security`）其实是模型把分类名当标签用，而 `settings`/`vision`/`documentation` 与分类 `plugin-manager`/`memory` 是真正该补的词条
 - 浏览器名册：`window.__DSH_BOOT__` 的 29 个条目中含 `dsh-plugin-hub`
 - `GET /plugins/dsh-plugin-hub/client.js?rev=…` → **200**（31553 字节）
 - `GET /plugin-hub/catalog` → 200，无远端数据时正确退化为 `source: "seed"`（路由前缀移出 `/plugins/*` 保留命名空间之后）
