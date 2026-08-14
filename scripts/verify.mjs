@@ -137,6 +137,28 @@ check(
   !monorepoDirectories(treeRepo(['docs', 'node_modules', 'dist']), undefined).includes('node_modules'),
 )
 
+console.log('\n4b/6 slice planning')
+const { planSlices } = await import('../tools/crawler/github.ts')
+// A client that keeps declaring "too many" until three date splits have been
+// applied, forcing the planner to recurse on both halves.
+const splitting = { count: async q => ((q.match(/created:/g) ?? []).length >= 3 ? 10 : 900) }
+const planned = await planSlices('topic:x', splitting, () => {})
+const splitDates = [...new Set(planned.flatMap(q =>
+  [...q.matchAll(/created:[<>=]+(\d{4}-\d{2}-\d{2})/g)].map(m => m[1])))].sort()
+check('planner splits oversized slices', planned.length > 6)
+check('every planned slice is a query string', planned.every(q => typeof q === 'string' && q.startsWith('topic:x')))
+// The bug this guards: deriving the split window from recursion depth instead
+// of threading it through makes every split land in the same recent span, so
+// the older half never narrows and its repositories are silently lost.
+check(
+  'both halves narrow within their own window',
+  splitDates.length >= 5 && splitDates[0] < '2025-07-01' && splitDates[splitDates.length - 1] > '2025-12-01',
+  `split dates: ${splitDates.join(', ')}`,
+)
+const neverStops = { count: async () => 5000 }
+const bounded = await planSlices('topic:x', neverStops, () => {})
+check('planner terminates when a window cannot be split', bounded.length > 0 && bounded.length < 500)
+
 console.log('\n5/6 label validation and scoring')
 const { validateLabel, clipReadme } = await import('../tools/crawler/label.ts')
 const validLabel = {

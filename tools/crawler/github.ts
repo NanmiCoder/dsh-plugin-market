@@ -203,43 +203,51 @@ export async function planSlices(
   base: string, client: GitHubClient, log: (line: string) => void,
 ): Promise<string[]> {
   const planned: string[] = []
+  const now = new Date()
   for (const bucket of STAR_BUCKETS) {
-    await refine(`${base} ${bucket}`, 0)
+    await refine(`${base} ${bucket}`, 0, EPOCH, now)
   }
   return planned
 
-  async function refine(q: string, depth: number): Promise<void> {
+  /**
+   * Split one query until it is small enough to drain completely.
+   *
+   * The date window is threaded through the recursion rather than derived
+   * from the depth: each half must narrow within its OWN bounds, and a
+   * depth-derived window would keep halving the same recent span, so the
+   * older half would never actually narrow.
+   * @param q - the query so far.
+   * @param depth - recursion depth, bounding the work.
+   * @param lo - inclusive lower bound of this branch's creation window.
+   * @param hi - exclusive upper bound of this branch's creation window.
+   */
+  async function refine(q: string, depth: number, lo: Date, hi: Date): Promise<void> {
     const count = await client.count(q)
     if (count === 0) return
-    if (count <= SPLIT_THRESHOLD || depth >= 4) {
+    if (count <= SPLIT_THRESHOLD || depth >= 6) {
       if (count > SPLIT_THRESHOLD) {
         log(`github: slice "${q}" declares ${count} and cannot be split further; it will be truncated`)
       }
       planned.push(q)
       return
     }
-    // Halve by creation date. The bounds are fixed rather than probed: the
-    // ecosystem postdates DSH's release, so a 2025 floor is safely early.
-    const [lo, hi] = dateBounds(depth)
-    const mid = new Date((lo.getTime() + hi.getTime()) / 2).toISOString().slice(0, 10)
-    log(`github: splitting "${q}" (${count}) at created:${mid}`)
-    await refine(`${q} created:<${mid}`, depth + 1)
-    await refine(`${q} created:>=${mid}`, depth + 1)
+    const midMs = (lo.getTime() + hi.getTime()) / 2
+    const mid = new Date(midMs)
+    const midDay = mid.toISOString().slice(0, 10)
+    // Once the window is a single day there is nothing left to halve.
+    if (hi.getTime() - lo.getTime() < 2 * 86_400_000) {
+      log(`github: slice "${q}" declares ${count} within a one-day window; it will be truncated`)
+      planned.push(q)
+      return
+    }
+    log(`github: splitting "${q}" (${count}) at created:${midDay}`)
+    await refine(`${q} created:<${midDay}`, depth + 1, lo, mid)
+    await refine(`${q} created:>=${midDay}`, depth + 1, mid, hi)
   }
 }
 
-/**
- * Date bounds for the recursive split.
- * @param depth - the current recursion depth.
- * @returns the window to halve.
- */
-function dateBounds(depth: number): [Date, Date] {
-  const start = new Date('2025-01-01T00:00:00Z')
-  const end = new Date()
-  // Narrow the window as depth grows so successive halvings stay meaningful.
-  const span = (end.getTime() - start.getTime()) / 2 ** depth
-  return [new Date(end.getTime() - span), end]
-}
+/** Earliest plausible creation date for this ecosystem, as the split floor. */
+const EPOCH = new Date('2025-01-01T00:00:00Z')
 
 /**
  * Drain every page of one slice.
