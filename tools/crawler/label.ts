@@ -76,8 +76,17 @@ const LABEL_TOOL: Anthropic.Tool = {
         type: 'number',
         description: 'Between 0 and 1. When the input is thin, lower this rather than inventing detail.',
       },
+      installMethod: {
+        type: 'string',
+        enum: ['npm', 'git', 'manual'],
+        description: 'How the README says to install it. "npm" when a package name is published; "git" when it is cloned and built from source; "manual" when there is no installable artifact at all.',
+      },
+      installCommand: {
+        type: 'string',
+        description: 'The exact install command the README gives, verbatim, e.g. "npm i @foo/bar" or "dsh plugin add github:a/b". Empty string when the README gives none.',
+      },
     },
-    required: ['category', 'tags', 'summaryZh', 'summaryEn', 'needsApiKey', 'isSpam', 'confidence'],
+    required: ['category', 'tags', 'summaryZh', 'summaryEn', 'needsApiKey', 'isSpam', 'confidence', 'installMethod', 'installCommand'],
   },
 }
 
@@ -91,7 +100,12 @@ Call the emit_label tool exactly once with your classification. Do not write pro
 
 Judge only from the evidence given. A plugin's README and manifest describe what it
 claims to do; the tier and capability facts describe what was verified. When the two
-disagree, weigh the verified facts more heavily.`
+disagree, weigh the verified facts more heavily.
+
+For installMethod and installCommand, read the README's own installation section and
+report what the author wrote — a package name, a git URL, or nothing. Do not infer an
+install path from the manifest; the point is to capture the author's own instruction,
+which the host will verify separately before anything is executed.`
 
 /** Construct the client once — it holds a connection pool and retry state. */
 let client: Anthropic | undefined
@@ -268,6 +282,16 @@ export function validateLabel(
   const summaryEn = typeof row.summaryEn === 'string' ? row.summaryEn.trim() : ''
   if (summaryZh === '') errors.push('summaryZh is required')
   if (summaryEn === '') errors.push('summaryEn is required')
+
+  // installMethod and installCommand are hints, not verdicts: the host verifies
+  // them against the npm registry or the repository before acting. A malformed
+  // one degrades to "manual" rather than failing the entry.
+  const offeredMethod = typeof row.installMethod === 'string' ? row.installMethod : ''
+  const installMethod = (['npm', 'git', 'manual'] as const).includes(offeredMethod as never)
+    ? offeredMethod as 'npm' | 'git' | 'manual'
+    : 'manual'
+  const installCommand = typeof row.installCommand === 'string' ? row.installCommand.trim() : ''
+
   if (errors.length > 0) return { errors }
   return {
     droppedCategory,
@@ -279,6 +303,8 @@ export function validateLabel(
       needsApiKey: row.needsApiKey === true,
       isSpam: row.isSpam === true,
       confidence: typeof row.confidence === 'number' ? Math.max(0, Math.min(1, row.confidence)) : 0.5,
+      installMethod,
+      installCommand,
     },
     droppedTags,
   }
@@ -438,5 +464,7 @@ function fallbackLabel(candidate: Candidate): Label {
     needsApiKey: false,
     isSpam: false,
     confidence: 0.2,
+    installMethod: 'manual',
+    installCommand: '',
   }
 }

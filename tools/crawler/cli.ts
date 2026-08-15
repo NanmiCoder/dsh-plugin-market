@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { classify, extractSignals, monorepoDirectories, parseManifest } from './classify.ts'
+import { classify, dropRedundantRoots, extractSignals, monorepoDirectories, parseManifest } from './classify.ts'
 import { DATA_DIR, README_CANDIDATES, SCHEMA_VERSION, TOPICS } from './config.ts'
 import { fetchNpmFacts, fetchReadme, githubRepoFromUrl, mapLimit, searchNpm } from './enrich.ts'
 import { drainSlice, fetchSubPackages, GitHubClient, planSlices } from './github.ts'
@@ -75,6 +75,12 @@ const log = (line: string): void => { console.log(line) }
  */
 function loadDotEnv(): void {
   try {
+    // The Anthropic SDK reads ANTHROPIC_AUTH_TOKEN before ANTHROPIC_API_KEY, so
+    // a shell that also exports a token for another provider (Kimi, etc.) would
+    // silently override the .env this pipeline is configured with. Strip the
+    // competing variable first; .env then wins unconditionally.
+    delete process.env.ANTHROPIC_AUTH_TOKEN
+    delete process.env.ANTHROPIC_BASE_URL
     process.loadEnvFile(join(ROOT, '.env'))
   } catch {
     // No .env, or it is unreadable: fall through to the ambient environment.
@@ -90,6 +96,10 @@ function loadDotEnv(): void {
  * @returns the key, or undefined when neither is set.
  */
 function resolveApiKey(): string | undefined {
+  // After loadDotEnv(), process.env.ANTHROPIC_API_KEY is whatever .env set, or
+  // whatever the shell had if there is no .env. DEEPSEEK_API_KEY is accepted
+  // because the key that actually works here is a DeepSeek one served over the
+  // Anthropic-compatible endpoint.
   const key = process.env.ANTHROPIC_API_KEY ?? process.env.DEEPSEEK_API_KEY
   return key === undefined || key === '' ? undefined : key
 }
@@ -226,8 +236,9 @@ async function main(): Promise<void> {
   }
 
   // ---- Emit ----------------------------------------------------------------
+  const deduped = dropRedundantRoots(classified, log)
   const siblingCount = new Map<string, number>()
-  const entries: CatalogEntry[] = classified.map(({ candidate, verdict }) => {
+  const entries: CatalogEntry[] = deduped.map(({ candidate, verdict }) => {
     const repo = candidate.repo
     const id = candidateId(candidate)
     const label = labels.get(id)
@@ -249,6 +260,17 @@ async function main(): Promise<void> {
       summaryEn: label?.summaryEn,
       category: label?.category,
       tags: label?.tags ?? [],
+      // The author's own topics, passed through untouched. Until now these
+      // were read by classification and by the labelling prompt but never
+      // published, so the UI could only ever show inferred tags.
+      topics: repo.repositoryTopics.nodes.map(node => node.topic.name),
+      // The README's own install instruction, kept separate from what will
+      // actually be executed. `verdict.installMethod` is what classification
+      // proved; `installHint` is what the author wrote. They often differ —
+      // that gap is exactly what the host verifies at install time.
+      installHint: label === undefined || (label.installCommand === '' && label.installMethod === 'manual')
+        ? undefined
+        : { method: label.installMethod, command: label.installCommand },
       stars: repo.stargazerCount,
       forks: repo.forkCount,
       openIssues: repo.openIssues.totalCount,
@@ -267,6 +289,7 @@ async function main(): Promise<void> {
       hasClient: verdict.capabilities.hasClient,
       hasSkills: verdict.capabilities.hasSkills,
       needsApiKey: verdict.capabilities.needsApiKey || label?.needsApiKey === true,
+      nativeTs: verdict.capabilities.nativeTs,
       labelStale: label?.stale === true ? true : undefined,
     }
     const ranked = score({
@@ -387,17 +410,38 @@ function compact(entry: CatalogEntry): Partial<CatalogEntry> {
     installMethod: entry.installMethod,
     installSpec: entry.installSpec,
     runsBuildScript: entry.runsBuildScript,
+    // What the README said to run. Not what will be executed — the host
+    // verifies this before touching it.
+    installHint: entry.installHint,
     summary: entry.summary,
     summaryEn: entry.summaryEn,
     category: entry.category,
     tags: entry.tags,
+    topics: entry.topics,
     stars: entry.stars,
     pushedAt: entry.pushedAt,
     license: entry.license,
     hasClient: entry.hasClient,
     hasSkills: entry.hasSkills,
     needsApiKey: entry.needsApiKey,
+    nativeTs: entry.nativeTs,
     score: entry.score,
+    // Everything below is read by the detail panel. Dropping a field here does
+    // not break the build or fail a type check — it silently empties a row of
+    // the metrics grid for anyone whose registryUrl points at index.json, so
+    // scripts/verify.mjs asserts this list against what the UI renders.
+    forks: entry.forks,
+    commits: entry.commits,
+    openIssues: entry.openIssues,
+    closedIssues: entry.closedIssues,
+    openPullRequests: entry.openPullRequests,
+    createdAt: entry.createdAt,
+    language: entry.language,
+    npmVersion: entry.npmVersion,
+    latestReleaseTag: entry.latestReleaseTag,
+    latestReleaseAt: entry.latestReleaseAt,
+    archived: entry.archived,
+    isFork: entry.isFork,
   }
 }
 

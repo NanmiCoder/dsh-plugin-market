@@ -61,12 +61,39 @@ export interface CatalogEntry {
   readonly runsBuildScript: boolean
   /** Shown when `installMethod` is `manual`: the clone-and-build recipe. */
   readonly manualSteps?: readonly string[]
+  /**
+   * The install instruction as the README wrote it — the author's own words,
+   * not a command this plugin will execute. The host verifies it separately
+   * before acting; it exists so the UI can say "the author recommends X" and
+   * the confirmation dialog can show the verified command instead.
+   */
+  readonly installHint?: {
+    /** npm package, git repository, or manual-only. */
+    readonly method: 'npm' | 'git' | 'manual'
+    /** The command as written, verbatim. */
+    readonly command: string
+  }
   readonly description: string
   /** One-line LLM summary. */
   readonly summary?: string
   readonly summaryEn?: string
   readonly category?: string
+  /**
+   * Labels the model chose from a closed vocabulary.
+   *
+   * Deliberately separate from {@link topics}: these are comparable across the
+   * whole catalog because the vocabulary is fixed, which is what makes them
+   * usable as filters. They are not what the author wrote.
+   */
   readonly tags: readonly string[]
+  /**
+   * The repository's own GitHub topics, verbatim and unfiltered.
+   *
+   * This is authorship, not inference — the author's own words about their
+   * project — so it is never merged into `tags` and never rewritten. An empty
+   * array means the repository carries no topics at all.
+   */
+  readonly topics: readonly string[]
   readonly stars: number
   readonly forks: number
   readonly openIssues: number
@@ -86,6 +113,11 @@ export interface CatalogEntry {
   readonly hasClient: boolean
   readonly hasSkills: boolean
   readonly needsApiKey: boolean
+  /**
+   * The declared entry point is plain TypeScript that Node 26's strip-only
+   * loader runs without a build step, so a git install is already loadable.
+   */
+  readonly nativeTs: boolean
   /** Composite ranking score; the formula is documented in README.md. */
   readonly score: number
   /** Labels were reused from cache because the labelling pass failed. */
@@ -127,6 +159,24 @@ export interface CatalogResponse {
   readonly installEnabled: boolean
   /** Set when the published schema is newer than this build understands. */
   readonly upgradeRequired?: boolean
+}
+
+/**
+ * Response body of `GET /readme`.
+ *
+ * READMEs are fetched on demand rather than published into the catalog: at
+ * ~8 KB each, 1984 of them would add 16 MB to a document the browser parses on
+ * every open. Fetching per entry also means the text is current rather than as
+ * old as the last crawl.
+ */
+export interface ReadmeResponse {
+  readonly ok: boolean
+  /** Raw Markdown, as written by the repository author. */
+  readonly markdown: string
+  /** Absolute URL the Markdown came from, for resolving relative links. */
+  readonly sourceUrl?: string
+  /** Set when the fetch failed; the UI shows the repository link instead. */
+  readonly message?: string
 }
 
 /** Response body of the install and uninstall routes. */

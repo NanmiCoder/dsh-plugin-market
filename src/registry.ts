@@ -7,8 +7,8 @@
  * schema-compatible document ever replaces it.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   isCompatible,
@@ -21,6 +21,16 @@ import {
 
 /** The seed snapshot shipped with the package (`files` includes `assets`). */
 const SEED_PATH = fileURLToPath(new URL('../assets/seed-catalog.json', import.meta.url))
+
+/**
+ * The catalog the crawler writes, relative to this package.
+ *
+ * `data/` is excluded from the npm tarball, so this path exists only when the
+ * package is a working checkout — which is exactly the case where the crawler
+ * runs on the same machine. Preferring it means a local pipeline needs no
+ * configuration at all, while an npm install still falls through to the seed.
+ */
+const LOCAL_BUILD_PATH = fileURLToPath(new URL('../data/v1/catalog.json', import.meta.url))
 
 /** Tier values accepted from a published catalog. */
 const TIERS: readonly string[] = ['verified-npm', 'verified-git', 'likely-plugin', 'related']
@@ -114,11 +124,16 @@ function parseEntry(value: unknown): CatalogEntry | undefined {
     manualSteps: Array.isArray(row.manualSteps)
       ? row.manualSteps.filter((s): s is string => typeof s === 'string')
       : undefined,
+    installHint: parseInstallHint(row.installHint),
     description: str('description') ?? '',
     summary: str('summary'),
     summaryEn: str('summaryEn'),
     category: str('category'),
     tags: Array.isArray(row.tags) ? row.tags.filter((t): t is string => typeof t === 'string') : [],
+    // Absent in catalogs built before topics were published; an old document
+    // must still render, so a missing field degrades to "no topics" rather
+    // than dropping the row.
+    topics: Array.isArray(row.topics) ? row.topics.filter((t): t is string => typeof t === 'string') : [],
     stars: num('stars'),
     forks: num('forks'),
     openIssues: num('openIssues'),
@@ -137,9 +152,54 @@ function parseEntry(value: unknown): CatalogEntry | undefined {
     hasClient: row.hasClient === true,
     hasSkills: row.hasSkills === true,
     needsApiKey: row.needsApiKey === true,
+    nativeTs: row.nativeTs === true,
     score: num('score'),
     labelStale: row.labelStale === true ? true : undefined,
   }
+}
+
+/**
+ * Resolve a configured source to a local path, when it names one.
+ *
+ * The published catalog will eventually be an HTTPS URL, but the crawler runs
+ * on the user's own machine and writes `data/v1/catalog.json` there. Pointing
+ * `registryUrl` straight at that file closes the loop without a server, and
+ * without waiting for the repository to go public.
+ * @param source - the configured `registryUrl`.
+ * @returns the filesystem path, or undefined when this is a network source.
+ */
+export function localSourcePath(source: string): string | undefined {
+  if (source.startsWith('file://')) {
+    try {
+      return fileURLToPath(source)
+    } catch {
+      return undefined
+    }
+  }
+  // A bare absolute path. Relative paths are refused rather than resolved
+  // against an ambient cwd that the user cannot see from the settings UI.
+  return isAbsolute(source) ? source : undefined
+}
+
+/** Methods an installHint may name. */
+const HINT_METHODS: readonly string[] = ['npm', 'git', 'manual']
+
+/**
+ * Coerce a published installHint into the shape the type declares.
+ *
+ * A hint that fails this shape is dropped rather than repaired: it is only the
+ * author's own instruction, and a malformed one is worse than none.
+ * @param value - the raw value from the document.
+ * @returns the hint, or undefined.
+ */
+function parseInstallHint(value: unknown): CatalogEntry['installHint'] {
+  if (typeof value !== 'object' || value === null) return undefined
+  const row = value as Record<string, unknown>
+  const method = row.method
+  const command = row.command
+  if (typeof method !== 'string' || !HINT_METHODS.includes(method)) return undefined
+  if (typeof command !== 'string') return undefined
+  return { method: method as 'npm' | 'git' | 'manual', command }
 }
 
 /** An empty catalog, used when even the seed cannot be read. */
@@ -173,21 +233,33 @@ export class CatalogRegistry {
    * @returns the state after the attempt.
    */
   async refresh(): Promise<CatalogState> {
-    if (this.options.registryUrl === '') return this.state
-    this.inFlight ??= this.fetchOnce().finally(() => { this.inFlight = undefined })
+    const source = this.resolveSource()
+    if (source === undefined) return this.state
+    this.inFlight ??= this.fetchOnce(source).finally(() => { this.inFlight = undefined })
     return this.inFlight
+  }
+
+  /**
+   * Decide where this refresh should read from.
+   * @returns the configured source, the local build, or undefined for neither.
+   */
+  private resolveSource(): string | undefined {
+    if (this.options.registryUrl !== '') return this.options.registryUrl
+    return existsSync(LOCAL_BUILD_PATH) ? LOCAL_BUILD_PATH : undefined
   }
 
   /**
    * Perform one conditional fetch and adopt the result when it is usable.
    * @returns the state after the attempt.
    */
-  private async fetchOnce(): Promise<CatalogState> {
+  private async fetchOnce(source: string): Promise<CatalogState> {
+    const local = localSourcePath(source)
+    if (local !== undefined) return this.readLocalSource(local)
     const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
     try {
       const headers: Record<string, string> = { accept: 'application/json' }
       if (this.etag !== undefined) headers['if-none-match'] = this.etag
-      const response = await fetch(this.options.registryUrl, { headers, signal })
+      const response = await fetch(source, { headers, signal })
       if (response.status === 304) return this.state
       if (!response.ok) {
         this.options.warn(`plugin-hub: catalog fetch failed with HTTP ${response.status}; keeping ${this.state.source} data`)
@@ -195,7 +267,7 @@ export class CatalogRegistry {
       }
       const catalog = parseCatalog(await response.json())
       if (catalog === undefined) {
-        this.options.warn(`plugin-hub: catalog at ${this.options.registryUrl} is malformed; keeping ${this.state.source} data`)
+        this.options.warn(`plugin-hub: catalog at ${source} is malformed; keeping ${this.state.source} data`)
         return this.state
       }
       if (!isCompatible(catalog.meta)) {
@@ -212,6 +284,44 @@ export class CatalogRegistry {
       return this.state
     } catch (error: unknown) {
       this.options.warn(`plugin-hub: catalog refresh failed (${String(error)}); keeping ${this.state.source} data`)
+      return this.state
+    }
+  }
+
+  /**
+   * Adopt a catalog the crawler wrote to this machine.
+   *
+   * mtime plays the part ETag plays for a network source: an unchanged file is
+   * not re-parsed, which matters because the full document is several
+   * megabytes and the refresh timer fires unattended.
+   * @param path - the catalog file.
+   * @returns the state after the attempt.
+   */
+  private readLocalSource(path: string): CatalogState {
+    try {
+      const stamp = String(statSync(path).mtimeMs)
+      if (stamp === this.etag && this.state.source === 'remote') return this.state
+      const catalog = parseCatalog(JSON.parse(readFileSync(path, 'utf8')))
+      if (catalog === undefined) {
+        this.options.warn(`plugin-hub: catalog at ${path} is malformed; keeping ${this.state.source} data`)
+        return this.state
+      }
+      if (!isCompatible(catalog.meta)) {
+        this.state = { ...this.state, upgradeRequired: true }
+        this.options.warn(
+          `plugin-hub: catalog at ${path} declares schema v${catalog.meta.schemaVersion}, newer than this build supports`,
+        )
+        return this.state
+      }
+      this.etag = stamp
+      // Deliberately reported as `remote`: from the UI's point of view this is
+      // the published catalog, just delivered over the filesystem. Writing the
+      // cache too keeps the marketplace populated if the file later moves.
+      this.state = { catalog, source: 'remote', upgradeRequired: false }
+      this.writeCache(catalog)
+      return this.state
+    } catch (error: unknown) {
+      this.options.warn(`plugin-hub: could not read catalog at ${path} (${String(error)}); keeping ${this.state.source} data`)
       return this.state
     }
   }

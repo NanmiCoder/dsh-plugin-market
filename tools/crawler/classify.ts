@@ -37,6 +37,16 @@ export interface Signals {
   readonly hasBin: boolean
   readonly hasEntry: boolean
   readonly declaresDshKeyword: boolean
+  /**
+   * The entry point is plain TypeScript that Node 26's strip-only loader can
+   * run without a build step.
+   *
+   * "Native" is deliberately narrow: `main`/`exports` points at a `.ts` file,
+   * and the repo has no `prepare` script (if it had one, the build IS the
+   * intended path). These plugins need no `lib/` at all — a git install
+   * leaves the source tree, which on Node 26 is already loadable.
+   */
+  readonly nativeTs: boolean
 }
 
 /** The verdict for one candidate. */
@@ -51,6 +61,7 @@ export interface Classification {
     readonly hasClient: boolean
     readonly hasSkills: boolean
     readonly needsApiKey: boolean
+    readonly nativeTs: boolean
   }
 }
 
@@ -137,7 +148,21 @@ export function extractSignals(candidate: Candidate): Signals {
     hasBin: manifest?.bin !== undefined,
     hasEntry: manifest?.main !== undefined || manifest?.exports !== undefined,
     declaresDshKeyword: (manifest?.keywords ?? []).some(keyword => (TOPICS as readonly string[]).includes(keyword)),
+    nativeTs: entryIsNativeTs(manifest),
   }
+}
+
+/**
+ * Whether the manifest's entry point is plain TypeScript Node can run as-is.
+ * @param manifest - the package manifest.
+ * @returns true when the declared entry is a `.ts` file and there is no build.
+ */
+function entryIsNativeTs(manifest: PackageManifest | undefined): boolean {
+  if (manifest === undefined) return false
+  // A prepare script means the build is the intended path, not native TS.
+  if (typeof manifest.scripts?.prepare === 'string') return false
+  const main = manifest.main ?? ''
+  return main.endsWith('.ts') || main.endsWith('.tsx')
 }
 
 /**
@@ -165,6 +190,7 @@ export function classify(candidate: Candidate, signals: Signals): Classification
     hasClient: signals.hasClient,
     hasSkills: signals.hasSkills,
     needsApiKey: detectNeedsApiKey(candidate),
+    nativeTs: signals.nativeTs,
   }
   const manual = (reason: string): Classification => ({
     tier: 'likely-plugin',
@@ -249,4 +275,60 @@ function manualSteps(candidate: Candidate): string[] {
     'pnpm install && pnpm build',
     'dsh plugin --profile web add $(pwd)',
   ]
+}
+
+/** One classified candidate, as the emit stage consumes it. */
+export type Classified = { candidate: Candidate, verdict: NonNullable<ReturnType<typeof classify>> }
+
+/**
+ * Drop repository-root rows that a sibling sub-package already covers.
+ *
+ * The monorepo pass always keeps the root candidate and then adds one row per
+ * sub-package it finds. When the root itself declares nothing — no manifest
+ * name, no bundle, no patch file — the result is two rows for one repository
+ * that look identical in the list: same name, same description, same stars.
+ * Measured on the published catalog, 75 repositories were duplicated this way,
+ * for 103 redundant rows.
+ *
+ * A root is dropped only when a sibling exists AND the root carries no package
+ * of its own AND it is not installable. A root that is itself a real plugin
+ * stays, because then the two rows genuinely are two different things.
+ * @param classified - every classified candidate.
+ * @param log - progress sink.
+ * @returns the rows to emit.
+ */
+export function dropRedundantRoots(
+  classified: readonly Classified[], log: (line: string) => void = () => {},
+): Classified[] {
+  const childRepos = new Set(
+    classified.filter(row => row.candidate.subdir !== undefined)
+      .map(row => row.candidate.repo.nameWithOwner),
+  )
+  // Package names claimed by a sub-package, per repository. A root declaring
+  // the same name as one of its children is not a second plugin — it is the
+  // workspace root of the same one, reached by a different path.
+  const childNames = new Map<string, Set<string>>()
+  for (const row of classified) {
+    if (row.candidate.subdir === undefined) continue
+    const name = row.candidate.manifest?.name
+    if (name === undefined) continue
+    const repo = row.candidate.repo.nameWithOwner
+    const names = childNames.get(repo) ?? new Set<string>()
+    names.add(name)
+    childNames.set(repo, names)
+  }
+  const kept = classified.filter((row) => {
+    if (row.candidate.subdir !== undefined) return true
+    const repo = row.candidate.repo.nameWithOwner
+    if (!childRepos.has(repo)) return true
+    const name = row.candidate.manifest?.name
+    if (name !== undefined && childNames.get(repo)?.has(name) === true) return false
+    const bare = name === undefined
+      && row.verdict.tier === 'related'
+      && row.verdict.installMethod === 'manual'
+    return !bare
+  })
+  const dropped = classified.length - kept.length
+  if (dropped > 0) log(`dedupe: dropped ${dropped} repository roots already covered by a sub-package`)
+  return kept
 }

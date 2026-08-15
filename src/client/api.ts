@@ -6,7 +6,7 @@
  * `@deepseek-ai/dsh-api-remotes`, which an out-of-tree plugin cannot join.
  */
 
-import type { CatalogResponse, MutationResponse } from '../types.ts'
+import type { CatalogResponse, MutationResponse, ReadmeResponse } from '../types.ts'
 
 // Not `/plugins/dsh-plugin-hub`: that prefix is the client-module registry's,
 // and registering a route there would shadow this plugin's own browser bundle.
@@ -32,6 +32,23 @@ export async function refreshCatalog(): Promise<CatalogResponse> {
   const response = await post(`${BASE}/refresh`, {})
   if (!response.ok) throw new Error(`refresh failed: HTTP ${response.status}`)
   return await response.json() as CatalogResponse
+}
+
+/**
+ * Read one entry's README.
+ *
+ * As with install, only the id travels: the host resolves the repository from
+ * its own catalog rather than fetching a URL this side supplies.
+ * @param id - the catalog entry id.
+ * @returns the README, or a response explaining why there is none.
+ */
+export async function fetchReadme(id: string): Promise<ReadmeResponse> {
+  try {
+    const response = await fetch(`${BASE}/readme?id=${encodeURIComponent(id)}`, { cache: 'no-store' })
+    return await response.json() as ReadmeResponse
+  } catch (error: unknown) {
+    return { ok: false, markdown: '', message: String(error) }
+  }
 }
 
 /**

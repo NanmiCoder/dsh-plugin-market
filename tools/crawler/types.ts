@@ -80,6 +80,14 @@ export interface Label {
   readonly needsApiKey: boolean
   readonly isSpam: boolean
   readonly confidence: number
+  /**
+   * How the README says to install it — the author's own instruction, not
+   * something inferred from the manifest. The host verifies this separately
+   * before acting on it; it is never executed as read.
+   */
+  readonly installMethod: 'npm' | 'git' | 'manual'
+  /** The install command as written, verbatim. Empty when none was found. */
+  readonly installCommand: string
 }
 
 /** A cached label plus the key that validates it. */

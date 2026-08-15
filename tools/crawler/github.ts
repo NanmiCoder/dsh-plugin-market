@@ -227,51 +227,102 @@ export async function planSlices(
   base: string, client: GitHubClient, log: (line: string) => void,
 ): Promise<string[]> {
   const planned: string[] = []
-  const now = new Date()
+  const today = Math.floor(Date.now() / DAY_MS)
   for (const bucket of STAR_BUCKETS) {
-    await refine(`${base} ${bucket}`, 0, EPOCH, now)
+    await refine(`${base} ${bucket}`, 0, FLOOR_DAY, today)
   }
   return planned
+
+  /** Whether the plan has grown past what is worth spending points on. */
+  function exhausted(): boolean {
+    return planned.length >= MAX_SLICES
+  }
 
   /**
    * Split one query until it is small enough to drain completely.
    *
-   * The date window is threaded through the recursion rather than derived
-   * from the depth: each half must narrow within its OWN bounds, and a
-   * depth-derived window would keep halving the same recent span, so the
-   * older half would never actually narrow.
-   * @param q - the query so far.
+   * The window is carried as day numbers and rendered as ONE `created:a..b`
+   * range each time. Appending `created:<x` to a query that already carries a
+   * `created:` qualifier does not intersect the two — GitHub search honours a
+   * single instance of a qualifier — so a query built that way keeps returning
+   * the same ~1000 repositories at every depth while claiming to have
+   * narrowed, and everything outside that first page is silently never seen.
+   *
+   * The window is threaded through the recursion rather than derived from the
+   * depth: each half must narrow within its OWN bounds, or the older half
+   * never narrows at all.
+   * @param bucket - the query without any date qualifier.
    * @param depth - recursion depth, bounding the work.
-   * @param lo - inclusive lower bound of this branch's creation window.
-   * @param hi - exclusive upper bound of this branch's creation window.
+   * @param lo - inclusive lower bound, in whole days since the epoch.
+   * @param hi - inclusive upper bound, in whole days since the epoch.
    */
-  async function refine(q: string, depth: number, lo: Date, hi: Date): Promise<void> {
+  async function refine(bucket: string, depth: number, lo: number, hi: number): Promise<void> {
+    const q = `${bucket} created:${toDay(lo)}..${toDay(hi)}`
     const count = await client.count(q)
     if (count === 0) return
-    if (count <= SPLIT_THRESHOLD || depth >= 6) {
+    // Each split costs two more count queries against a 5000/hour budget, so
+    // the plan is capped by total size as well as by depth. Hitting either cap
+    // is logged rather than swallowed: a truncated slice means repositories
+    // this run will not see.
+    if (count <= SPLIT_THRESHOLD || depth >= MAX_DEPTH || exhausted()) {
       if (count > SPLIT_THRESHOLD) {
         log(`github: slice "${q}" declares ${count} and cannot be split further; it will be truncated`)
       }
       planned.push(q)
       return
     }
-    const midMs = (lo.getTime() + hi.getTime()) / 2
-    const mid = new Date(midMs)
-    const midDay = mid.toISOString().slice(0, 10)
-    // Once the window is a single day there is nothing left to halve.
-    if (hi.getTime() - lo.getTime() < 2 * 86_400_000) {
+    // A single-day window has nothing left to halve.
+    if (hi <= lo) {
       log(`github: slice "${q}" declares ${count} within a one-day window; it will be truncated`)
       planned.push(q)
       return
     }
-    log(`github: splitting "${q}" (${count}) at created:${midDay}`)
-    await refine(`${q} created:<${midDay}`, depth + 1, lo, mid)
-    await refine(`${q} created:>=${midDay}`, depth + 1, mid, hi)
+    // Round up so the lower half is always strictly smaller than the whole,
+    // which is what guarantees termination.
+    const mid = lo + Math.ceil((hi - lo) / 2)
+    log(`github: splitting "${q}" (${count}) at ${toDay(mid)}`)
+    await refine(bucket, depth + 1, lo, mid - 1)
+    await refine(bucket, depth + 1, mid, hi)
   }
 }
 
-/** Earliest plausible creation date for this ecosystem, as the split floor. */
-const EPOCH = new Date('2025-01-01T00:00:00Z')
+/** Milliseconds in a day. */
+const DAY_MS = 86_400_000
+
+/**
+ * Deepest split allowed.
+ *
+ * The floor-to-today range is roughly 7000 days, so 13 halvings reach a single
+ * day — the point past which there is nothing left to narrow.
+ */
+const MAX_DEPTH = 13
+
+/**
+ * Largest plan built, across all star buckets.
+ *
+ * Each slice costs one count query plus at least one page query, against an
+ * hourly budget of 5000 points. A topic that somehow resists splitting would
+ * otherwise spend the whole budget planning and have nothing left to fetch.
+ */
+const MAX_SLICES = 400
+
+/**
+ * Split floor, well before GitHub existed.
+ *
+ * Deliberately not the ecosystem's first commit: a floor inside the range of
+ * real creation dates would silently drop every repository older than it, and
+ * an unbounded-looking query is exactly where that loss would go unnoticed.
+ */
+const FLOOR_DAY = Math.floor(Date.parse('2007-01-01T00:00:00Z') / DAY_MS)
+
+/**
+ * Render a day number as the `YYYY-MM-DD` GitHub search expects.
+ * @param day - whole days since the Unix epoch.
+ * @returns the ISO date.
+ */
+function toDay(day: number): string {
+  return new Date(day * DAY_MS).toISOString().slice(0, 10)
+}
 
 /**
  * Drain every page of one slice.

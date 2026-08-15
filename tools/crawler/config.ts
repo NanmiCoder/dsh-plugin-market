@@ -92,7 +92,7 @@ export const TAGS = [
 ] as const
 
 /** Bumped when the prompt changes; invalidates every cached label. */
-export const PROMPT_VERSION = 'p1'
+export const PROMPT_VERSION = 'p2'
 
 /** Bumped when CATEGORIES or TAGS change; invalidates every cached label. */
 export const VOCAB_VERSION = 'v1'

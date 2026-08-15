@@ -14,6 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Installer, type LoaderLike } from './installer.ts'
 import { readInstalledPackage, resolveProfileDirectory } from './profile.ts'
+import { ReadmeStore } from './readme.ts'
 import { CatalogRegistry } from './registry.ts'
 import { isTrustedRequest } from './request-trust.ts'
 import type {
@@ -22,6 +23,7 @@ import type {
   CatalogResponse,
   InstallState,
   MutationResponse,
+  ReadmeResponse,
 } from './types.ts'
 
 export const name = 'plugin-hub'
@@ -57,7 +59,13 @@ interface WebRouteHost {
 
 /** Plugin configuration. */
 export interface Config {
-  /** Published catalog URL. Empty keeps the packaged seed snapshot. */
+  /**
+   * Where the catalog comes from. Empty keeps the packaged seed snapshot.
+   *
+   * Accepts an HTTPS URL, or — because the crawler runs on the user's own
+   * machine — an absolute path or `file://` URL pointing at the
+   * `data/v1/catalog.json` it writes.
+   */
   registryUrl?: string
   /** Background refresh interval in hours; 0 disables periodic refresh. */
   refreshIntervalHours?: number
@@ -100,6 +108,7 @@ export function apply(ctx: Context, config: Config): void {
     loader: ctx.loader as unknown as LoaderLike,
     warn,
   })
+  const readmes = new ReadmeStore(warn)
 
   // Refresh once at mount, then on a timer. A failure is logged and ignored:
   // the registry keeps whatever it already holds.
@@ -121,7 +130,7 @@ export function apply(ctx: Context, config: Config): void {
     ctx.effect(() => webServer.register({
       kind: 'prefix',
       path: ROUTE_PREFIX,
-      handler: (req, res) => handle(req, res, { registry, installer, resolved, warn }),
+      handler: (req, res) => handle(req, res, { registry, installer, readmes, resolved, warn }),
     }), 'plugin-hub: marketplace routes')
   }
 
@@ -137,6 +146,7 @@ export function apply(ctx: Context, config: Config): void {
 interface RouteDeps {
   readonly registry: CatalogRegistry
   readonly installer: Installer
+  readonly readmes: ReadmeStore
   readonly resolved: { allowInstall: boolean, registryUrl: string }
   readonly warn: (line: string) => void
 }
@@ -156,6 +166,10 @@ async function handle(
   try {
     if (route === '/catalog' && method === 'GET') {
       sendJson(res, 200, buildCatalogResponse(deps))
+      return
+    }
+    if (route === '/readme' && method === 'GET') {
+      await sendReadme(url, res, deps)
       return
     }
     if (route === '/refresh' && method === 'POST') {
@@ -234,6 +248,30 @@ async function mutate(
     return
   }
   sendJson(res, 200, await deps.installer.install(entry))
+}
+
+/**
+ * Serve one entry's README.
+ *
+ * The browser sends a catalog id; the repository is looked up here. An id that
+ * is not in the catalog is refused outright, so this route can never be used
+ * to make the host fetch a URL of the caller's choosing.
+ * @param url - the parsed request URL.
+ * @param res - the response to write.
+ * @param deps - the plugin's collaborators.
+ */
+async function sendReadme(url: URL, res: ServerResponse, deps: RouteDeps): Promise<void> {
+  const id = url.searchParams.get('id') ?? ''
+  const entry = deps.registry.snapshot().catalog.entries.find(candidate => candidate.id === id)
+  if (entry === undefined) {
+    sendJson(res, 404, { ok: false, markdown: '', message: `${id} is not in the catalog` } satisfies ReadmeResponse)
+    return
+  }
+  const result = await deps.readmes.get(entry.repo)
+  const body: ReadmeResponse = result.message === undefined
+    ? { ok: true, markdown: result.markdown, sourceUrl: result.sourceUrl }
+    : { ok: false, markdown: '', message: result.message }
+  sendJson(res, 200, body)
 }
 
 /**
