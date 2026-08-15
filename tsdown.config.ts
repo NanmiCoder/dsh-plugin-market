@@ -1,7 +1,7 @@
 /**
- * Client bundle build for dsh-plugin-hub.
+ * Client bundle build for @nanmicoder/dsh-plugin-market.
  *
- * The browser never loads source: it loads `/plugins/dsh-plugin-hub/client.js`,
+ * The browser never loads source: it loads the package's `/plugins/<id>/client.js`,
  * a CJS closure-factory the DSH module loader calls with its own `require`.
  * This config reproduces that contract from the DSH repository's
  * `packages/client/tsdown.client.ts`:
@@ -52,7 +52,13 @@ const GENERATED_REMOTE = /^@deepseek-ai\/dsh-[a-z0-9]+(?:-[a-z0-9]+)*\/remote$/
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-const PLUGIN_ID = 'dsh-plugin-hub'
+/**
+ * The browser loader resolves client bundles by npm package name. Read the id
+ * from the manifest so a package rename cannot leave a host/client mismatch.
+ */
+const PLUGIN_ID: string = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+).name
 
 /**
  * Resolve a CSS Modules import to its source file.

@@ -1,6 +1,6 @@
 {
   "name": "@nanmicoder/dsh-plugin-market",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Verified plugin marketplace for DeepSeek Harness: discover, inspect, install, and remove DSH plugins from the Web UI",
   "type": "module",
   "main": "lib/index.js",
@@ -30,7 +30,7 @@
     "email": "relakkes@gmail.com",
     "url": "https://github.com/NanmiCoder"
   },
-  "homepage": "https://github.com/NanmiCoder/dsh-plugin-market#readme",
+  "homepage": "https://dsh-plugin-market-flax.vercel.app/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NanmiCoder/dsh-plugin-market.git"
@@ -79,6 +79,9 @@
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "verify": "node scripts/verify.mjs && node scripts/verify-package.mjs",
+    "site:dev": "vite --config vite.config.ts",
+    "site:typecheck": "tsc -p site/tsconfig.json --noEmit",
+    "site:build": "pnpm site:typecheck && vite build --config vite.config.ts",
     "crawl": "node tools/crawler/cli.ts",
     "crawl:dry": "node tools/crawler/cli.ts --dry-run",
     "crawl:rules": "node tools/crawler/cli.ts --no-llm",
@@ -93,11 +96,42 @@
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
-    "@deepseek-ai/schemastery": "^3.18.1-rc.1",
     "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-app-boot": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-runtime": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-primitives": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1-rc.1"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@phosphor-icons/react": "^2.1.10",
     "@types/node": "^22.10.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.7",
@@ -105,6 +139,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tsdown": "0.22.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^8.2.1"
   }
 }

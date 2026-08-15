@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@nanmicoder/dsh-plugin-market"><img src="https://img.shields.io/npm/v/@nanmicoder/dsh-plugin-market.svg" alt="npm 版本"></a>
+  <a href="https://dsh-plugin-market-flax.vercel.app/"><img src="https://img.shields.io/badge/live-WebUI-267A59" alt="WebUI 在线预览"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/npm/l/@nanmicoder/dsh-plugin-market.svg" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-202724" alt="DeepSeek Harness 插件">
 </p>
@@ -17,6 +18,8 @@
 `dsh-plugin-market` 为 DeepSeek Harness 加入内置插件市场。你可以在 **设置 → 插件市场** 中浏览持续维护的目录、检查每条收录背后的证据，并直接安装或卸载已验证插件。
 
 目录刻意采取保守策略：只有确定性规则能决定一个产物是否可安装；模型生成的摘要和标签只用于展示，永远不能授权安装。
+
+你可以打开 **[WebUI 在线交互预览](https://dsh-plugin-market-flax.vercel.app/)**，搜索真实目录切片、检查证据并体验响应式产品流程；预览站不会执行安装。
 
 ### 当前目录证据
 
@@ -123,7 +126,7 @@ README 通过目录 ID 路由按需拉取。渲染器构造 React 元素，不�
 ```yaml
 - insert:
     - id: plugin-hub
-      name: dsh-plugin-hub
+      name: '@nanmicoder/dsh-plugin-market'
       config:
         registryUrl: ''
         refreshIntervalHours: 6
@@ -135,7 +138,7 @@ README 通过目录 ID 路由按需拉取。渲染器构造 React 元素，不�
 - 安装第三方插件等于在你的机器上执行第三方代码。任何变更前，确认框都会展示仓库、作者、许可证、包来源和构建脚本风险。
 - 确定性验证能证明打包与可安装性，不能证明第三方插件一定无害；不熟悉的代码仍应先审查。
 - npm 包只包含小型种子目录，不包含数 MB 的实时数据；如需独立发布的实时目录，请配置 `registryUrl`。
-- host 路由使用 `/plugin-hub/*`，不会占用专供 client bundle 的 `/plugins/dsh-plugin-hub`。
+- host 路由使用 `/plugin-hub/*`，不会占用 DSH 专供 client bundle 的 `/plugins/<package-id>` 命名空间。
 - UI 注册在 `settings.section`，兼容未提供 `settings.plugins.tab` 的 DSH 构建。
 
 ## 目录开发
@@ -157,10 +160,14 @@ pnpm install
 pnpm typecheck
 pnpm build
 pnpm verify
+pnpm site:dev
+pnpm site:build
 npm pack --dry-run --ignore-scripts
 ```
 
 `pnpm verify` 会离线检查目录、安装安全门、请求信任、爬虫、模型标签、产物和 npm 包契约。
+
+每次 push 都会由 Vercel Git 集成执行 WebUI 类型检查、构建与部署：`main` 更新生产环境，其他分支生成预览部署。
 
 ## 发版
 

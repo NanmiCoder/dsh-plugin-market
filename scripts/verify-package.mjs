@@ -20,6 +20,17 @@ assert(manifest.publishConfig?.access === 'public', 'scoped package must publish
 assert(manifest.publishConfig?.registry === 'https://registry.npmjs.org/', 'unexpected publish registry')
 assert(manifest.dsh?.bundle?.patch === './cordis.patch.yml', 'DSH bundle patch is missing')
 assert(manifest.scripts?.prepublishOnly === 'pnpm build && pnpm verify', 'prepublish verification is missing')
+assert(
+  manifest.dependencies?.['@deepseek-ai/schemastery'] === '^3.18.1-rc.1',
+  'schemastery must ship as a runtime dependency',
+)
+
+for (const peer of Object.keys(manifest.peerDependencies ?? {})) {
+  assert(
+    manifest.peerDependenciesMeta?.[peer]?.optional === true,
+    `host-provided peer must be optional for standalone installs: ${peer}`,
+  )
+}
 
 for (const path of ['lib/index.js', 'lib/client.js', 'lib/types/index.d.ts', 'cordis.patch.yml', 'README.md', 'README_ZH.md']) {
   assert(existsSync(new URL(`../${path}`, import.meta.url)), `published artifact is missing: ${path}`)
@@ -40,5 +51,18 @@ const workflow = readFileSync(new URL('../.github/workflows/publish.yml', import
 assert(workflow.includes("- 'v*.*.*'"), 'publish workflow must be tag-gated')
 assert(workflow.includes('id-token: write'), 'publish workflow lacks OIDC permission')
 assert(workflow.includes("github.repository == 'NanmiCoder/dsh-plugin-market'"), 'publish workflow lacks repository fence')
+
+const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+assert(
+  patch.includes("name: '@nanmicoder/dsh-plugin-market'"),
+  'bundle patch must import the published npm package name',
+)
+assert(!patch.includes('name: dsh-plugin-hub'), 'bundle patch still imports the obsolete package name')
+
+const clientBundle = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+assert(
+  /id:\s*["']@nanmicoder\/dsh-plugin-market["']/.test(clientBundle),
+  'browser bundle must register under the published npm package name',
+)
 
 console.log(`package contract verified: ${manifest.name}@${manifest.version}`)

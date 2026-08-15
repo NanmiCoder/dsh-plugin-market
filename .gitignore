@@ -1,5 +1,6 @@
 node_modules/
 lib/
+site-dist/
 *.tsbuildinfo
 .DS_Store
 .tmp/
@@ -7,3 +8,5 @@ lib/
 .env.local
 .logs/
 .playwright-mcp/
+.vercel
+.env*

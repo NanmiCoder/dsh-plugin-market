@@ -274,7 +274,7 @@ export class CatalogRegistry {
         // Forward guard: refuse rather than half-parse, and tell the UI why.
         this.state = { ...this.state, upgradeRequired: true }
         this.options.warn(
-          `plugin-hub: published catalog schema v${catalog.meta.schemaVersion} is newer than this build supports — update dsh-plugin-hub`,
+          `plugin-hub: published catalog schema v${catalog.meta.schemaVersion} is newer than this build supports — update @nanmicoder/dsh-plugin-market`,
         )
         return this.state
       }

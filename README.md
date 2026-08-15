@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@nanmicoder/dsh-plugin-market"><img src="https://img.shields.io/npm/v/@nanmicoder/dsh-plugin-market.svg" alt="npm version"></a>
+  <a href="https://dsh-plugin-market-flax.vercel.app/"><img src="https://img.shields.io/badge/live-WebUI-267A59" alt="Live WebUI preview"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/npm/l/@nanmicoder/dsh-plugin-market.svg" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/DeepSeek%20Harness-plugin-202724" alt="DeepSeek Harness plugin">
 </p>
@@ -17,6 +18,8 @@
 `dsh-plugin-market` adds a plugin marketplace to DeepSeek Harness. Browse a continuously curated catalog inside **Settings → Plugin Marketplace**, inspect the evidence behind each entry, and install or remove verified plugins without leaving the Web UI.
 
 The catalog is deliberately conservative: deterministic rules decide whether an artifact is installable; model-generated summaries and tags are display-only and never authorize an install.
+
+**[Open the interactive WebUI preview](https://dsh-plugin-market-flax.vercel.app/)** to search the real catalog slice, inspect evidence, and test the responsive product flow without executing an installation.
 
 ### Current catalog proof
 
@@ -123,7 +126,7 @@ README files are fetched on demand through a catalog-ID route. The renderer buil
 ```yaml
 - insert:
     - id: plugin-hub
-      name: dsh-plugin-hub
+      name: '@nanmicoder/dsh-plugin-market'
       config:
         registryUrl: ''
         refreshIntervalHours: 6
@@ -135,7 +138,7 @@ README files are fetched on demand through a catalog-ID route. The renderer buil
 - Installing a third-party plugin executes third-party code on your machine. The confirmation dialog exposes repository, author, license, package source, and build-script risk before any change.
 - Deterministic verification proves packaging and installability, not that a third-party plugin is benign. Review unfamiliar code before installing it.
 - The npm package includes a small seed catalog, not the multi-megabyte live dataset. Configure `registryUrl` when deploying against a separately published catalog.
-- Host routes use `/plugin-hub/*`. They intentionally do not use `/plugins/dsh-plugin-hub`, which is reserved for client bundles.
+- Host routes use `/plugin-hub/*`. They intentionally stay outside `/plugins/<package-id>`, which DSH reserves for client bundles.
 - The UI registers into `settings.section` for compatibility with DSH builds that do not expose `settings.plugins.tab`.
 
 ## Catalog development
@@ -157,10 +160,14 @@ pnpm install
 pnpm typecheck
 pnpm build
 pnpm verify
+pnpm site:dev
+pnpm site:build
 npm pack --dry-run --ignore-scripts
 ```
 
 `pnpm verify` runs offline catalog, install-safety, request-trust, crawler, labeling, artifact, and package-contract checks.
+
+Every pushed commit is type-checked, built, and deployed through Vercel's Git integration. `main` updates production; other branches receive preview deployments.
 
 ## Releasing
 

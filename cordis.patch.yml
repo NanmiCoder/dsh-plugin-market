@@ -1,4 +1,4 @@
-# dsh-plugin-hub bundle patch: mounts the plugin marketplace into the host
+# @nanmicoder/dsh-plugin-market bundle patch: mounts the marketplace into the host
 # composition of a dsh profile. The plugin serves a curated catalog of DSH
 # plugins over its own HTTP routes and contributes a "market" tab to the Web
 # UI's Settings > Plugins section, from which a plugin can be installed into
@@ -9,7 +9,9 @@
 # reconciles it into the profile's `dsh.profile.bundles` layer list.
 - insert:
     - id: plugin-hub
-      name: dsh-plugin-hub
+      # Node-resolvable package name — must stay in sync with package.json.
+      # Quoted because `@` cannot open a plain YAML scalar.
+      name: '@nanmicoder/dsh-plugin-market'
       config:
         # Catalog source. While the data repository is private this stays on
         # the packaged seed snapshot; switch to the raw.githubusercontent URL

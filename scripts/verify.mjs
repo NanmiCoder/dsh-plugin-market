@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Offline smoke checks for dsh-plugin-hub.
+ * Offline smoke checks for @nanmicoder/dsh-plugin-market.
  *
  * Covers the pure decision layers — classification rules, install-spec
  * derivation, scoring, catalog parsing and its forward guard, the install
@@ -495,7 +495,7 @@ if (!existsSync(catalogPath)) {
 }
 
 console.log('\n   cache round-trip in a temporary directory')
-const stateRoot = await mkdtemp(join(tmpdir(), 'dsh-plugin-hub-verify-'))
+const stateRoot = await mkdtemp(join(tmpdir(), 'dsh-plugin-market-verify-'))
 try {
   const { CatalogRegistry } = await import('../lib/registry.js')
   const catalogFile = join(stateRoot, 'catalog.json')

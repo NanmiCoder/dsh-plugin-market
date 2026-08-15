@@ -1,11 +1,11 @@
 /**
- * dsh-plugin-hub — a plugin marketplace for DeepSeek Harness.
+ * @nanmicoder/dsh-plugin-market — a plugin marketplace for DeepSeek Harness.
  *
  * The host half serves a curated catalog over its own HTTP routes and performs
  * installs into the running profile. The browser half (`./client`) renders it
  * as a tab in Settings > Plugins.
  *
- * @module dsh-plugin-hub
+ * @module @nanmicoder/dsh-plugin-market
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -38,7 +38,7 @@ export const inject = ['loader']
 /**
  * Route prefix owned by this plugin.
  *
- * Deliberately NOT under `/plugins/dsh-plugin-hub`: that namespace belongs to
+ * Deliberately NOT under `/plugins/<package-id>`: that namespace belongs to
  * the client-module registry, which serves every plugin's browser bundle from
  * `/plugins/<id>/client.js`. A prefix route registered there shadows the
  * bundle route, and the marketplace's own UI stops loading.

@@ -85,7 +85,7 @@ export const zh = {
   // Banners
   reloadNeeded: '插件已安装。刷新页面以加载它的界面。',
   reloadNow: '刷新页面',
-  upgradeRequired: '插件目录的格式比当前版本新，请升级 dsh-plugin-hub。',
+  upgradeRequired: '插件目录的格式比当前版本新，请升级 @nanmicoder/dsh-plugin-market。',
   installDisabled: '当前配置已关闭安装功能（allowInstall: false），仅供浏览。',
   sourceSeed: '正在使用内置的种子目录。',
   sourceCache: '正在使用本地缓存的目录。',
@@ -176,7 +176,7 @@ export const en = {
   close: 'Close',
   reloadNeeded: 'Plugin installed. Reload the page to load its interface.',
   reloadNow: 'Reload',
-  upgradeRequired: 'The published catalog is newer than this build understands. Update dsh-plugin-hub.',
+  upgradeRequired: 'The published catalog is newer than this build understands. Update @nanmicoder/dsh-plugin-market.',
   installDisabled: 'Installing is disabled by configuration (allowInstall: false). Browsing only.',
   sourceSeed: 'Showing the packaged seed catalog.',
   sourceCache: 'Showing the locally cached catalog.',

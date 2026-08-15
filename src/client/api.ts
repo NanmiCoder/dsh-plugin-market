@@ -8,7 +8,7 @@
 
 import type { CatalogResponse, MutationResponse, ReadmeResponse } from '../types.ts'
 
-// Not `/plugins/dsh-plugin-hub`: that prefix is the client-module registry's,
+// Not `/plugins/<package-id>`: that prefix is the client-module registry's,
 // and registering a route there would shadow this plugin's own browser bundle.
 const BASE = '/plugin-hub'
 
