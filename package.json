@@ -1,7 +1,7 @@
 {
-  "name": "dsh-plugin-hub",
+  "name": "@nanmicoder/dsh-plugin-market",
   "version": "0.1.0",
-  "description": "Plugin marketplace for DeepSeek Harness: browse a verified, auto-curated catalog of DSH plugins and install them into your runtime with one click, from the Web UI settings",
+  "description": "Verified plugin marketplace for DeepSeek Harness: discover, inspect, install, and remove DSH plugins from the Web UI",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -21,19 +21,39 @@
     "lib",
     "assets",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README_ZH.md"
   ],
   "license": "MIT",
+  "author": {
+    "name": "程序员阿江 (Relakkes)",
+    "email": "relakkes@gmail.com",
+    "url": "https://github.com/NanmiCoder"
+  },
+  "homepage": "https://github.com/NanmiCoder/dsh-plugin-market#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NanmiCoder/dsh-plugin-market.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NanmiCoder/dsh-plugin-market/issues"
   },
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
-    "plugin-marketplace"
+    "plugin-marketplace",
+    "plugin-catalog",
+    "plugin-manager",
+    "web-ui"
   ],
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -58,20 +78,21 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "verify": "node scripts/verify.mjs",
+    "verify": "node scripts/verify.mjs && node scripts/verify-package.mjs",
     "crawl": "node tools/crawler/cli.ts",
     "crawl:dry": "node tools/crawler/cli.ts --dry-run",
     "crawl:rules": "node tools/crawler/cli.ts --no-llm",
-    "refresh": "sh scripts/refresh.sh"
+    "refresh": "sh scripts/refresh.sh",
+    "prepublishOnly": "pnpm build && pnpm verify"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1-rc.1",
-    "@deepseek-ai/dsh-app-boot": "^0.0.1-rc.1",
-    "@deepseek-ai/dsh-client-locale": "^0.0.1-rc.1",
-    "@deepseek-ai/dsh-client-runtime": "^0.0.1-rc.1",
-    "@deepseek-ai/dsh-client-ui-primitives": "^0.0.1-rc.1",
-    "@deepseek-ai/dsh-client-ui-settings": "^0.0.1-rc.1",
-    "@deepseek-ai/dsh-client-ui-slots": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-app-boot": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/schemastery": "^3.18.1-rc.1",
     "react": "^18.2.0"
   },
@@ -79,7 +100,7 @@
     "@anthropic-ai/sdk": "^0.117.1",
     "@types/node": "^22.10.0",
     "@types/react": "~18.3.1",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^18.3.7",
     "lightningcss": "^1.33.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

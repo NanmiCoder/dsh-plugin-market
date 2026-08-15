@@ -4,9 +4,9 @@
 # UI's Settings > Plugins section, from which a plugin can be installed into
 # (or removed from) the running profile.
 #
-# Install: `dsh plugin --profile <name> add dsh-plugin-hub` (npm or a local
-# path). The `dsh plugin` command pnpm-installs the package into the profile
-# and reconciles it into the profile's `dsh.profile.bundles` layer list.
+# Install with npm spec `@nanmicoder/dsh-plugin-market` or a local path. The
+# `dsh plugin` command pnpm-installs the package into the selected profile and
+# reconciles it into the profile's `dsh.profile.bundles` layer list.
 - insert:
     - id: plugin-hub
       name: dsh-plugin-hub
