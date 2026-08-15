@@ -1,37 +1,96 @@
-/* Plugin marketplace tab. Colours come from the shell's CSS variables so the
-   tab follows the active theme without knowing which one is active. */
+/* Plugin marketplace.
+
+   The palette is derived, not declared: the tab lives inside the DSH settings
+   shell, so neutrals come from the shell's own variables and only the single
+   accent belongs to this plugin. That accent is a deep teal, chosen to be
+   legible against both themes while staying clearly distinct from the shell's
+   own blue — a marketplace action should not look like a system control.
+
+   Motion is CSS-only. This bundle has no runtime dependencies, and an
+   animation library would cost more than the effect is worth for a settings
+   panel. One easing curve is used throughout. */
 
 .root {
+  --plugin-hub-accent: #0d7268;
+  --plugin-hub-accent-soft: color-mix(in srgb, var(--plugin-hub-accent) 12%, transparent);
+  --plugin-hub-danger: #b4453a;
+  --plugin-hub-hairline: color-mix(in srgb, currentcolor 14%, transparent);
+  --plugin-hub-inset: color-mix(in srgb, currentcolor 6%, transparent);
+  --plugin-hub-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --plugin-hub-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
   display: flex;
   flex-direction: column;
   gap: 12px;
+  container-type: inline-size;
 }
 
-.status {
-  padding: 24px 8px;
-  color: var(--ds-text-secondary, #6b7280);
-  text-align: center;
+@media (prefers-color-scheme: dark) {
+  .root {
+    --plugin-hub-accent: #3fbfae;
+    --plugin-hub-danger: #e0796c;
+  }
 }
+
+/* Every number in this UI is monospaced so columns of counts and scores line
+   up vertically instead of shimmering as digits change width. */
+.num {
+  font-family: var(--plugin-hub-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ---- Banners and hints -------------------------------------------------- */
 
 .banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--ds-bg-warning, rgb(255 184 0 / 12%));
-  color: var(--ds-text-primary, inherit);
+  padding: 10px 13px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 10px;
+  background: var(--plugin-hub-inset);
   font-size: 13px;
+  animation: settle 320ms var(--plugin-hub-ease) both;
+}
+
+.banner[data-plugin-hub-banner='reload'] {
+  border-color: color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
+  background: var(--plugin-hub-accent-soft);
 }
 
 .hint {
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--ds-bg-secondary, rgb(127 127 127 / 8%));
-  color: var(--ds-text-secondary, #6b7280);
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: var(--plugin-hub-inset);
+  color: var(--ds-text-secondary, #71717a);
   font-size: 12px;
 }
+
+.notice {
+  max-height: 180px;
+  margin: 0;
+  padding: 11px 13px;
+  overflow: auto;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 10px;
+  background: var(--plugin-hub-inset);
+  font-family: var(--plugin-hub-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  animation: settle 320ms var(--plugin-hub-ease) both;
+}
+
+/* A failed install is not a neutral note: it needs to read as an error. */
+.notice[data-tone='error'] {
+  border-color: color-mix(in srgb, var(--plugin-hub-danger) 35%, transparent);
+  background: color-mix(in srgb, var(--plugin-hub-danger) 8%, transparent);
+  color: var(--plugin-hub-danger);
+}
+
+/* ---- Toolbar ------------------------------------------------------------ */
 
 .toolbar {
   display: flex;
@@ -40,293 +99,741 @@
   gap: 8px;
 }
 
-.search {
-  flex: 1 1 200px;
+.searchWrap {
+  position: relative;
+  flex: 1 1 220px;
   min-width: 0;
-  padding: 7px 10px;
-  border: 1px solid var(--ds-border, rgb(127 127 127 / 30%));
-  border-radius: 8px;
-  background: var(--ds-bg-input, transparent);
+}
+
+.searchIcon {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  display: flex;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  font-size: 14px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.search {
+  width: 100%;
+  padding: 8px 11px 8px 31px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 9px;
+  background: transparent;
   color: inherit;
   font: inherit;
+  font-size: 13px;
+  transition: border-color 180ms var(--plugin-hub-ease), background 180ms var(--plugin-hub-ease);
 }
+
+.search:focus {
+  border-color: color-mix(in srgb, var(--plugin-hub-accent) 55%, transparent);
+  background: var(--plugin-hub-inset);
+  outline: none;
+}
+
+.search::-webkit-search-cancel-button { cursor: pointer; }
 
 .segmented {
   display: inline-flex;
-  overflow: hidden;
-  border: 1px solid var(--ds-border, rgb(127 127 127 / 30%));
-  border-radius: 8px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--plugin-hub-inset);
 }
 
-.segment,
-.segmentActive {
-  padding: 6px 12px;
+.segment {
+  padding: 5px 11px;
   border: 0;
+  border-radius: 7px;
   background: transparent;
-  color: inherit;
+  color: var(--ds-text-secondary, #71717a);
   font: inherit;
+  font-size: 12.5px;
   cursor: pointer;
+  transition: color 180ms var(--plugin-hub-ease), background 180ms var(--plugin-hub-ease);
 }
 
-.segmentActive {
-  background: var(--ds-bg-selected, rgb(127 127 127 / 18%));
-  font-weight: 600;
+.segment:hover { color: var(--ds-text-primary, inherit); }
+
+.segment[data-active] {
+  background: var(--ds-bg-primary, #fff);
+  color: var(--ds-text-primary, inherit);
+  font-weight: 560;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 7%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .segment[data-active] {
+    background: color-mix(in srgb, currentcolor 14%, transparent);
+    box-shadow: none;
+  }
 }
 
 .select {
-  padding: 7px 8px;
-  border: 1px solid var(--ds-border, rgb(127 127 127 / 30%));
-  border-radius: 8px;
-  background: var(--ds-bg-input, transparent);
-  color: inherit;
-  font: inherit;
-}
-
-.button,
-.buttonPrimary,
-.buttonDanger {
-  padding: 6px 14px;
-  border: 1px solid var(--ds-border, rgb(127 127 127 / 30%));
-  border-radius: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 9px;
   background: transparent;
   color: inherit;
   font: inherit;
-  white-space: nowrap;
+  font-size: 12.5px;
   cursor: pointer;
 }
 
-.buttonPrimary {
-  border-color: transparent;
-  background: var(--ds-accent, #2563eb);
-  color: #fff;
+/* ---- Sort picker --------------------------------------------------------- */
+
+.sortRoot { position: relative; }
+
+.sortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 180ms var(--plugin-hub-ease), background 180ms var(--plugin-hub-ease);
 }
 
-.buttonDanger {
-  border-color: var(--ds-border-danger, rgb(220 38 38 / 45%));
-  color: var(--ds-text-danger, #dc2626);
+.sortButton:hover {
+  border-color: color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
+  background: var(--plugin-hub-inset);
 }
 
-.button:disabled,
-.buttonPrimary:disabled,
-.buttonDanger:disabled {
-  opacity: 55%;
-  cursor: not-allowed;
+.sortButton:active { transform: translateY(1px); }
+
+.sortChevron {
+  display: flex;
+  font-size: 11px;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  transition: transform 200ms var(--plugin-hub-ease);
 }
 
-.notice {
-  max-height: 160px;
+.sortChevron[data-open] { transform: rotate(90deg); }
+
+.sortMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 140px;
   margin: 0;
-  padding: 10px 12px;
-  overflow: auto;
-  border-radius: 8px;
-  background: var(--ds-bg-secondary, rgb(127 127 127 / 8%));
-  font-size: 12px;
-  white-space: pre-wrap;
+  padding: 4px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 10px;
+  background: var(--ds-bg-primary, #fff);
+  box-shadow: 0 8px 24px -8px rgb(9 9 11 / 18%);
+  list-style: none;
+  animation: settle 200ms var(--plugin-hub-ease) both;
 }
+
+@media (prefers-color-scheme: dark) {
+  .sortMenu { background: var(--ds-bg-primary, #1c1c1f); }
+}
+
+.sortOption {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ds-text-secondary, #71717a);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms var(--plugin-hub-ease), color 160ms var(--plugin-hub-ease);
+}
+
+.sortOption:hover {
+  background: var(--plugin-hub-inset);
+  color: var(--ds-text-primary, inherit);
+}
+
+.sortOption[data-active] {
+  background: var(--plugin-hub-accent-soft);
+  color: var(--plugin-hub-accent);
+  font-weight: 560;
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ds-text-secondary, #71717a);
+  font-size: 15px;
+  cursor: pointer;
+  transition: color 180ms var(--plugin-hub-ease), border-color 180ms var(--plugin-hub-ease);
+}
+
+.iconButton:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--plugin-hub-accent) 45%, transparent);
+  color: var(--plugin-hub-accent);
+}
+
+.iconButton:active:not(:disabled) { transform: scale(0.94); }
+
+.iconButton[data-spinning] {
+  color: var(--plugin-hub-accent);
+  animation: spin 900ms linear infinite;
+}
+
+.iconButton:disabled { cursor: default; }
+
+/* ---- Filter row --------------------------------------------------------- */
+
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The result count sits at the end of the filter row rather than on a line of
+   its own: it is the answer to the filters, so it belongs beside them. */
+.countLine {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.count {
+  font-family: var(--plugin-hub-mono);
+  font-size: 12.5px;
+  font-weight: 580;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-primary, inherit);
+}
+
+.footer {
+  margin: 2px 0 0;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  font-size: 11px;
+  text-align: center;
+}
+
+.listPane { min-width: 0; }
+
+/* ---- List --------------------------------------------------------------- */
 
 .list {
-  display: grid;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid var(--ds-border, rgb(127 127 127 / 22%));
-  border-radius: 10px;
-}
-
-.cardHead {
+.row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  border-top: 1px solid var(--plugin-hub-hairline);
+  animation: settle 400ms var(--plugin-hub-ease) both;
+  animation-delay: calc(var(--i, 0) * 22ms);
+  transition: background 180ms var(--plugin-hub-ease);
 }
 
-.name {
-  overflow: hidden;
-  color: inherit;
-  font-weight: 600;
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.row:last-child { border-bottom: 1px solid var(--plugin-hub-hairline); }
+
+.row:hover { background: var(--plugin-hub-inset); }
+
+/* The selected row is marked with a rule in the gutter rather than a fill, so
+   the marker survives the hover state instead of fighting it. */
+.row[data-selected]::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--plugin-hub-accent);
 }
 
-.name:hover {
-  text-decoration: underline;
-}
+.row[data-selected] { background: var(--plugin-hub-accent-soft); }
 
-.tier {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--ds-bg-secondary, rgb(127 127 127 / 12%));
-  font-size: 11px;
-}
-
-.tier[data-tier='verified-npm'] {
-  background: rgb(22 163 74 / 16%);
-  color: #16a34a;
-}
-
-.tier[data-tier='verified-git'] {
-  background: rgb(217 119 6 / 16%);
-  color: #d97706;
-}
-
-.score {
-  margin-left: auto;
-  color: var(--ds-text-secondary, #6b7280);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-}
-
-.summary {
-  margin: 0;
-  color: var(--ds-text-secondary, #4b5563);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.badges {
+.rowOpen {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.badge,
-.badgeWarn,
-.tag {
-  padding: 1px 7px;
-  border-radius: 4px;
-  background: var(--ds-bg-secondary, rgb(127 127 127 / 12%));
-  font-size: 11px;
-}
-
-.badgeWarn {
-  background: rgb(217 119 6 / 18%);
-  color: #d97706;
-}
-
-.tag {
-  background: transparent;
-  border: 1px solid var(--ds-border, rgb(127 127 127 / 25%));
-  color: var(--ds-text-secondary, #6b7280);
-}
-
-.meta {
-  display: flex;
-  flex-wrap: wrap;
+  flex: 1;
   gap: 12px;
-  color: var(--ds-text-secondary, #6b7280);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-}
-
-.actions {
-  display: flex;
-  gap: 8px;
-}
-
-.more,
-.footer {
-  align-self: center;
-  color: var(--ds-text-secondary, #6b7280);
-  font-size: 12px;
-}
-
-.more {
-  padding: 6px 16px;
-  border: 1px solid var(--ds-border, rgb(127 127 127 / 30%));
-  border-radius: 8px;
-  background: transparent;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 13px 4px 13px 13px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-.footer {
-  margin: 4px 0 0;
+.rowMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
+
+.nameLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.name {
+  font-size: 13.5px;
+  font-weight: 580;
+  letter-spacing: -0.011em;
+  overflow-wrap: anywhere;
+}
+
+.tier {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--plugin-hub-inset);
+  color: var(--ds-text-secondary, #71717a);
+  font-size: 10.5px;
+  font-weight: 520;
+  white-space: nowrap;
+}
+
+.tier[data-tier='verified-npm'] {
+  background: var(--plugin-hub-accent-soft);
+  color: var(--plugin-hub-accent);
+}
+
+.installed {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
+  border-radius: 5px;
+  color: var(--plugin-hub-accent);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ds-text-secondary, #71717a);
+  font-size: 12.5px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.metaLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 9px;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  font-size: 11px;
+}
+
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.cap {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--plugin-hub-inset);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+/* Topics are the author's own words, so they get the accent that inferred
+   tags do not. */
+.topic {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--plugin-hub-accent-soft);
+  color: var(--plugin-hub-accent);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.rowAction {
+  flex: none;
+  padding-right: 13px;
+}
+
+/* Scroll sentinel. Three quiet dots: enough to say "more is coming" without
+   implying an action, because there is nothing here to click. */
+.sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 20px 0 14px;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  font-size: 11.5px;
+}
+
+/* The "what the filter is hiding" prompt. Deliberately styled as a quiet
+   inline note rather than a warning: the filter is doing its job, the user
+   just cannot see it doing so. */
+.widen {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px dashed color-mix(in srgb, var(--plugin-hub-accent) 35%, transparent);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--plugin-hub-accent);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 180ms var(--plugin-hub-ease);
+}
+
+.widen:hover { background: var(--plugin-hub-accent-soft); }
+
+.widen:active { transform: translateY(1px); }
+
+.countTotal {
+  font-family: var(--plugin-hub-mono);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+
+.buttonPrimary,
+.buttonDanger,
+.buttonGhost {
+  padding: 6px 13px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 540;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 180ms var(--plugin-hub-ease), border-color 180ms var(--plugin-hub-ease), transform 120ms var(--plugin-hub-ease);
+}
+
+.buttonPrimary {
+  background: var(--plugin-hub-accent);
+  color: #fff;
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--plugin-hub-accent) 88%, #000);
+}
+
+.buttonDanger {
+  border-color: color-mix(in srgb, var(--plugin-hub-danger) 40%, transparent);
+  background: transparent;
+  color: var(--plugin-hub-danger);
+}
+
+.buttonDanger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--plugin-hub-danger) 10%, transparent);
+}
+
+.buttonGhost {
+  border-color: var(--plugin-hub-hairline);
+  background: transparent;
+  color: var(--ds-text-secondary, #71717a);
+}
+
+.buttonGhost:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
+  color: var(--plugin-hub-accent);
+}
+
+/* A one-pixel push on press: the click should feel like it landed on
+   something physical. */
+.buttonPrimary:active:not(:disabled),
+.buttonDanger:active:not(:disabled),
+.buttonGhost:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.buttonPrimary:disabled,
+.buttonDanger:disabled,
+.buttonGhost:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- Empty and error states --------------------------------------------- */
+
+.blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 52px 20px;
+  text-align: center;
+}
+
+.blankIcon {
+  display: flex;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  opacity: 0.5;
+}
+
+.blankTitle {
+  margin: 0;
+  color: var(--ds-text-primary, inherit);
+  font-size: 13.5px;
+  font-weight: 560;
+}
+
+.blankBody {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--ds-text-tertiary, #a1a1aa);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* ---- Skeletons ---------------------------------------------------------- */
+
+.skelToolbar,
+.skelName,
+.skelSummary,
+.skelMeta {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--plugin-hub-inset) 25%,
+    color-mix(in srgb, currentcolor 11%, transparent) 37%,
+    var(--plugin-hub-inset) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1500ms ease-in-out infinite;
+}
+
+.skelToolbar {
+  height: 32px;
+  border-radius: 9px;
+}
+
+.skelRow {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 14px 0;
+  border-top: 1px solid var(--plugin-hub-hairline);
+  animation: settle 400ms var(--plugin-hub-ease) both;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+
+.skelName { width: 38%; height: 13px; }
+.skelSummary { width: 76%; height: 11px; }
+.skelMeta { width: 46%; height: 10px; }
+
+/* ---- Dialogs ------------------------------------------------------------ */
 
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: rgb(0 0 0 / 45%);
+  padding: 20px;
+  background: rgb(9 9 11 / 42%);
+  backdrop-filter: blur(3px);
+  animation: fade 200ms var(--plugin-hub-ease) both;
 }
 
 .dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: min(460px, 100%);
-  max-height: 80vh;
-  padding: 18px 20px;
-  overflow: auto;
-  border-radius: 12px;
-  background: var(--ds-bg-elevated, #fff);
-  color: var(--ds-text-primary, #111);
+  width: min(440px, 100%);
+  max-height: 82vh;
+  padding: 20px;
+  overflow-y: auto;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 16px;
+  background: var(--ds-bg-primary, #fff);
+  color: var(--ds-text-primary, #27272a);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 6%) inset,
+    0 24px 48px -18px rgb(9 9 11 / 32%);
+  animation: rise 300ms var(--plugin-hub-ease) both;
+}
+
+@media (prefers-color-scheme: dark) {
+  .dialog { background: var(--ds-bg-primary, #1c1c1f); }
 }
 
 .dialogTitle {
-  margin: 0;
+  margin: 0 0 14px;
   font-size: 15px;
-}
-
-.dialogBody,
-.dialogWarn {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.dialogWarn {
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgb(217 119 6 / 14%);
-  color: #b45309;
+  font-weight: 600;
+  letter-spacing: -0.014em;
 }
 
 .factList {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 14px;
 }
 
 .factList > div {
   display: flex;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--plugin-hub-hairline);
+  font-size: 12.5px;
 }
 
+.factList > div:last-child { border-bottom: 0; }
+
 .factList dt {
-  min-width: 72px;
-  color: var(--ds-text-secondary, #6b7280);
+  color: var(--ds-text-tertiary, #a1a1aa);
+  white-space: nowrap;
 }
 
 .factList dd {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
-.steps {
-  margin: 0;
-  padding: 10px 12px;
-  overflow: auto;
-  border-radius: 8px;
-  background: var(--ds-bg-secondary, rgb(127 127 127 / 10%));
+.dialogBody {
+  margin: 0 0 10px;
+  color: var(--ds-text-secondary, #71717a);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+/* The command that will run, shown so the user can read it before accepting. */
+.dialogLabel {
+  margin: 0 0 6px;
+  color: var(--ds-text-secondary, #71717a);
   font-size: 12px;
+}
+
+.commandBlock {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 9px;
+  background: var(--plugin-hub-inset);
+  font-family: var(--plugin-hub-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* What the README says, set against what will run. */
+.hintCompare {
+  margin: 0 0 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 8px;
+  background: var(--plugin-hub-inset);
+  color: var(--ds-text-secondary, #71717a);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.hintCompare code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentcolor 8%, transparent);
+  font-family: var(--plugin-hub-mono);
+  font-size: 11px;
+}
+
+.dialogWarn {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--plugin-hub-danger) 32%, transparent);
+  border-radius: 9px;
+  color: var(--plugin-hub-danger);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .dialogActions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  margin-top: 16px;
+}
+
+.steps {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: var(--plugin-hub-inset);
+  font-family: var(--plugin-hub-mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+}
+
+/* ---- Motion ------------------------------------------------------------- */
+
+@keyframes settle {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes shimmer {
+  from { background-position: 100% 50%; }
+  to { background-position: 0 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row,
+  .banner,
+  .notice,
+  .dialog,
+  .overlay,
+  .skelRow {
+    animation: none;
+  }
+
+  .iconButton[data-spinning],
+  .skelToolbar,
+  .skelName,
+  .skelSummary,
+  .skelMeta {
+    animation: none;
+  }
 }

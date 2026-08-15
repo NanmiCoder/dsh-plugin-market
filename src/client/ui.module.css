@@ -1,0 +1,34 @@
+/* Shared primitives: icons and the metric cell. */
+
+.icon {
+  display: block;
+  flex: none;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.metricLabel {
+  color: var(--ds-text-tertiary, #a1a1aa);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* Values are monospaced and tabular so the grid reads as columns even when
+   the counts differ wildly in magnitude. */
+.metricValue {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ds-text-primary, inherit);
+  font-family: var(--plugin-hub-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
