@@ -83,7 +83,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-market
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
-| `registryUrl` | `''` | 已发布目录的 URL。为空时只用包内种子快照。仓库转公开后填 `https://raw.githubusercontent.com/NanmiCoder/dsh-plugin-market/main/data/v1/index.json`（`index.json` 已包含 UI 渲染所需的全部字段，体积约为 `catalog.json` 的四分之一；`catalog.json` 保留完整字段供审计） |
+| `registryUrl` | `''` | 目录来源。为空时按 **本仓库 `data/v1/catalog.json` → 本地缓存 → 包内种子** 依次回退：管线跑在本机，所以工作副本里天然有这份数据，不需要配置；而 npm 安装的包不含 `data/`，会落到种子。也可显式填 HTTPS URL、绝对路径或 `file://` URL。仓库转公开后填 `https://raw.githubusercontent.com/NanmiCoder/dsh-plugin-market/main/data/v1/index.json` 或 `catalog.json`，见下 |
 | `refreshIntervalHours` | `6` | 后台刷新间隔，`0` 关闭定时刷新 |
 | `allowInstall` | `true` | 设为 `false` 后所有变更路由一律拒绝，退化为纯浏览 |
 | `profileDir` | 由 `ctx.baseUrl` 推导 | 逃生阀，正常不需要设置 |
@@ -100,7 +100,23 @@ dsh plugin --profile web add /absolute/path/to/dsh-plugin-market
 
 ## 使用
 
-启动 Web UI，打开「设置 → 插件市场」。默认只显示可一键安装的条目；搜索框支持仓库名、包名、标签与摘要。点安装会先弹确认框，列出仓库、star、许可证、npm 状态与是否需要执行构建脚本。
+启动 Web UI，打开「设置 → 插件市场」。默认只显示可一键安装的条目；搜索框覆盖仓库名、包名、分类、**仓库自己的 GitHub topics** 与模型标签。点安装会先弹确认框，列出仓库、star、许可证、npm 状态与是否需要执行构建脚本。
+
+点任意一行进入详情页，展示：
+
+- 仓库自己的 description，以及单独标注的模型摘要——两者不混排，因为一个是作者写的、一个是推断的
+- **仓库自己的 GitHub topics**（可点击，直接转为搜索）与模型从受控词表选的标签，分区展示
+- 完整仓库指标：star / fork / 提交数 / 开放与已关闭 issue / 开放 PR / 创建与更新时间 / 许可证 / 语言 / npm 版本 / 最新 release
+- 安装命令，或不可自动安装时的克隆构建步骤
+- **完整 README**，按需从 GitHub 拉取并渲染
+
+### README 是怎么拿到和渲染的
+
+README **不进目录文件**：1984 份 × 8 KB 会给浏览器每次打开都要解析的文档增加约 16 MB，而且内容只会和上次爬取一样旧。改为详情页打开时按需拉取（`GET /plugin-hub/readme?id=`），host 侧从**自己的目录**解析出 `owner/repo` 再去取——浏览器只传一个 id，所以这个路由无法被指向任意主机。
+
+渲染器（`src/client/Markdown.tsx`）不使用 `dangerouslySetInnerHTML`，**每个节点都是 React 元素**，所以脚本注入在构造上就不可能，而不是靠过滤。链接与图片的 URL 另经 `safeUrl()` 只放行 http(s)（`javascript:`、`data:` 等一律丢弃）。
+
+README 里常见的 HTML（居中 banner、`<h1>`、徽章）会先归一化成 Markdown 再渲染，否则会以字面文本显示——安全但没法看。代码围栏内的 HTML 原样保留。
 
 ## 数据管线
 
@@ -115,6 +131,64 @@ pnpm crawl                    # 完整：采集 + 分级 + 打标
 pnpm refresh                  # 上面这条 + 有变化才 commit & push
 ```
 
+### 收录作者的安装方式，但只执行规范化后的 spec
+
+每个条目带两个不同的东西，**故意分开**：
+
+| 字段 | 来源 | 会不会被执行 |
+|---|---|---|
+| `installMethod` / `installSpec` | 分级规则（看 npm registry、看有没有 `prepare`） | **会** |
+| `installHint.method` / `installHint.command` | LLM 读 README 提取的 | **不会**，仅展示 |
+
+README 是作者的自述，作者最清楚自己的项目怎么装；但 README 也可能错（包改名了、依赖了私有包、写了 `curl \| bash`）。所以：
+
+1. **爬虫侧**：分级规则先定 `installSpec`——`verified-npm` 就是已验证存在于 registry 的包名，`verified-git` 就是 `github:owner/repo`。官方 `dsh plugin add` 本就是 pnpm 转发器，整个生态只有这两种安装语义。LLM 另从 README 提取作者写的命令存进 `installHint`，**只存，不执行**。
+2. **host 侧**：安装只接受 `installSpec`，过 `isSafeSpec` 白名单后在 profile 目录跑 `pnpm add <spec>`，再 reconcile + 热挂载——与官方 CLI 同一机制。`installHint` 在安装路径上**完全不被读取**。
+3. **UI**：详情页和确认框都同时显示「实际将执行 Y」和「作者写的是 X」。**两者不一致这件事本身就是信号** —— 说明 README 过时了，或者作者在推荐一条跑不通的路。
+
+**为什么不逐字执行 README 命令**（2026-08-15 实测过的弯路）：对 3518 条条目审计发现，可安装的 936 条里 58% 的 README 根本没写命令；写了命令的里面 255 条带 shell 元字符（`&&`、`| bash`、多行），78 条是 `<profile>`、`<you>` 这类模板占位符，还有 `brew install`、`curl | bash` 等噪声。而 660 条 `dsh plugin --profile web add ...` 把 profile 名硬编码成了作者的——在别的 profile 里逐字执行会**装到作者的 profile 里去**，装完还报成功。规范化 spec 之后，这三类故障在构造上就不存在。
+
+这样设计的代价是：有的插件作者确实写了正确的安装方式，但因为缺 `prepare` 或没发 npm，我们仍然只能给手动指引。这是**保守设计**，宁可少标 verified 也不能让用户装到崩。
+
+### `index.json` 与 `catalog.json` 的取舍
+
+`index.json` 是 `catalog.json` 去掉可推导字段（`url` 恒等于 `https://github.com/<repo>`；`manualSteps` 是固定的克隆构建配方）后的版本。**它现在只比 `catalog.json` 小约 11%**（详情页要读的字段几乎和完整条目一样多），所以两者都可以填给 `registryUrl`，差别不大。
+
+> README 之前写的"约四分之一"是错的——加字段之前实测就已经是 68%。
+>
+> 更要紧的是：这个子集是**手工维护**的。从里面漏掉一个字段不会让构建失败、也不会让类型检查报错，只会让线上用户的详情页少一行指标——我就是这么发现 `topics` 和另外 10 个字段没被带上的。`scripts/verify.mjs` 现在拿 UI 实际读取的字段列表去断言 `index.json`，防止再次静默漂移。
+>
+> 顺带一提：浏览器拿到的始终是 host `/catalog` 路由拼出的完整条目，`index.json` 只省 host 每 6 小时一次的那个带 ETag 的请求。真嫌它维护成本高的话，直接指向 `catalog.json`、删掉 `index.json` 也是合理的。
+
+### 两套标签，不合并
+
+目录里每条同时带 `topics` 与 `tags`，UI 也分区展示：
+
+| 字段 | 来源 | 用途 |
+|---|---|---|
+| `topics` | **仓库自己打的 GitHub topics**，原样透传 | 作者的自述。不改写、不过滤 |
+| `tags` | 模型从**受控词表**里选 | 全目录可比，因此能当筛选条件用 |
+
+分开是有意的：受控词表让标签在 1984 条之间可比，但代价是丢掉了作者的原话；topics 保留原话，但每个仓库各写各的、无法横向比较。两者回答的不是同一个问题，混在一起两个都会变差。
+
+> 这里修过一个 bug：`repositoryTopics` 一直在抓（`github.ts`），分级和打标 prompt 也一直在读，但 **`CatalogEntry` 里没有这个字段**，所以从未进过产物——UI 上看到的"标签"全是模型推断的，仓库自己打的话题一个都没显示。
+
+### 分片：一个 slice 只能有一个 `created:` 限定符
+
+GitHub search 单次查询最多返回 1000 条，所以按 star 桶 + 创建日期递归二分。**同一个查询里重复出现 `created:` 限定符时，GitHub 只认其中一个，不会取交集**——原来的实现是往查询后面追加 `created:<X`，于是每一层"分裂"出来的子查询实际范围和父查询一样：
+
+```
+# 错的：4 个 created:，实际只有 1 个生效
+topic:dsh-plugin stars:1..2 created:>=2025-10-23 created:<2026-03-19 created:<2026-01-05 created:<2025-11-29
+
+# 对的：一个区间
+topic:dsh-plugin stars:1..2 created:2025-11-10..2025-11-19
+```
+
+症状很好认：每个分片都声称有 ~900 条，但跑完总数只涨 2 条——因为它们返回的是同一批前 1000 条，其余的谁也没取到。修完之后 `topic:dsh-plugin` 从 **38 个分片（多个被截断）** 变成 **15 个分片（0 个被截断）**。
+
+`scripts/verify.mjs` 现在断言：每个 slice 恰好一个 `created:`、窗口两端都收敛、同桶内窗口不重叠、有数据的区间不留空洞。
+
 ### 打标用的是 Anthropic 官方 SDK
 
 `tools/crawler/label.ts` 用 `@anthropic-ai/sdk`。它连哪个端点由 `LLM_BASE_URL` 决定：
@@ -125,6 +199,8 @@ pnpm refresh                  # 上面这条 + 有变化才 commit & push
 | 真 `sk-ant-…` key | `https://api.anthropic.com` | 改 `LLM_MODEL` 为 `claude-opus-5` 等 |
 
 > 实测：同一把 DeepSeek key 在 `api.anthropic.com` 返回 403，在 DeepSeek 的 Anthropic 兼容端点返回 200。兼容端点还会把 Claude 模型名映射过去（`claude-opus-5` → `deepseek-v4-pro`），但打标是批量分类任务，显式用 flash 档更合适也更省。
+
+> **环境变量陷阱**：Anthropic SDK 读 `ANTHROPIC_AUTH_TOKEN` 的优先级高于 `ANTHROPIC_API_KEY`。如果你的 shell 里也 export 了 Kimi 等其他 Anthropic 兼容服务的 token（`ANTHROPIC_AUTH_TOKEN=...` + `ANTHROPIC_BASE_URL=...`），爬虫会**静默用错 key**，报 401 且错误信息里的 key 尾巴和你配的对不上。`loadDotEnv()` 会在读 `.env` 前先删掉这两个变量，保证 `.env` 是唯一来源。
 
 **结构化输出走工具调用，不是让模型"输出 JSON"。** 这里踩过两个实测的坑：
 

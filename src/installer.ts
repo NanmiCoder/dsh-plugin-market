@@ -85,15 +85,18 @@ export class Installer {
       if (!INSTALLABLE_TIERS.includes(entry.tier)) {
         return fail(`${entry.repo} is not marked installable (tier: ${entry.tier})`)
       }
-      if (entry.installMethod === 'manual') {
+      if (entry.installMethod === 'manual' || entry.installSpec === undefined) {
         // Unpublished and unbuildable by pnpm: attempting it would install a
         // package whose entry point was never compiled.
         return fail(`${entry.repo} must be installed manually — clone and build it, then add the directory`)
       }
+      // The spec comes from the host's own catalog copy, where the crawler
+      // normalized it to the only two shapes dsh itself uses — an npm package
+      // name or `github:owner/repo` — so this is exactly what
+      // `dsh plugin --profile <name> add` would run, minus the CLI detour and
+      // minus any dependence on how the README phrased it.
       const spec = entry.installSpec
-      if (spec === undefined || !isSafeSpec(spec)) {
-        return fail(`${entry.repo} has no usable install spec`)
-      }
+      if (!isSafeSpec(spec)) return fail(`${entry.repo} has an invalid install spec in the catalog`)
       const before = readManifest(this.options.profileDir)
       const result = this.runPnpm(['add', spec])
       if (result.status !== 0) return fail(this.explainPnpmFailure(result, spec), result.output)
@@ -103,7 +106,7 @@ export class Installer {
         return {
           ok: true,
           needsReload: false,
-          message: `${spec} installed as a plain dependency — it declares no dsh.bundle, so nothing was mounted`,
+          message: `pnpm add ${spec} ran, but nothing was mounted — the package declares no dsh.bundle`,
         }
       }
       let needsReload = false
