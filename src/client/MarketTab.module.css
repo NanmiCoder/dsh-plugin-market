@@ -1,384 +1,467 @@
-/* Plugin marketplace.
+/* Plugin marketplace — settings panel variant of the market design language.
 
    The palette is derived, not declared: the tab lives inside the DSH settings
-   shell, so neutrals come from the shell's own variables and only the single
-   accent belongs to this plugin. That accent is a deep teal, chosen to be
-   legible against both themes while staying clearly distinct from the shell's
-   own blue — a marketplace action should not look like a system control.
+   shell, so neutrals come from the shell's own variables (with fallbacks for
+   standalone rendering) and only the accents belong to this plugin. The
+   accent family is the market's blue with a sage second voice for verified
+   and installed state, over a light canvas that steps down from the surface.
+
+   One token layer on .root carries the whole visual language: pill radii for
+   controls, 16px cards, soft ink-tinted shadows, a mono stack for numbers and
+   metadata, and a single easing curve. Command surfaces are dark ink in BOTH
+   themes — a terminal looks like a terminal.
 
    Motion is CSS-only. This bundle has no runtime dependencies, and an
    animation library would cost more than the effect is worth for a settings
-   panel. One easing curve is used throughout. */
+   panel. */
 
 .root {
-  --plugin-hub-accent: #0d7268;
-  --plugin-hub-accent-soft: color-mix(in srgb, var(--plugin-hub-accent) 12%, transparent);
+  /* Accent: the market blue in both themes. */
+  --plugin-hub-accent: #4d6bfe;
+  --plugin-hub-accent-strong: #3d57e0;
+  --plugin-hub-accent-ink: #2f43b8;
+  --plugin-hub-on-accent: #ffffff;
+  --plugin-hub-accent-soft: #eaeeff;
+  --plugin-hub-accent-faint: rgb(77 107 254 / 7%);
+  --plugin-hub-accent-line: rgb(77 107 254 / 38%);
+
+  /* Sage: verified-install and installed state. */
+  --plugin-hub-sage: #0f9d8f;
+  --plugin-hub-sage-soft: #e2f5f2;
+  --plugin-hub-sage-ink: #0b6f66;
+
+  /* Destructive outcomes (failed mutations) stay red and never borrow the accent. */
   --plugin-hub-danger: #b4453a;
-  --plugin-hub-hairline: color-mix(in srgb, currentcolor 14%, transparent);
-  --plugin-hub-inset: color-mix(in srgb, currentcolor 6%, transparent);
+  --plugin-hub-danger-soft: color-mix(in srgb, var(--plugin-hub-danger) 9%, transparent);
+  --plugin-hub-danger-line: color-mix(in srgb, var(--plugin-hub-danger) 36%, transparent);
+
+  /* Cautionary note: git installs run the repository's build script. */
+  --plugin-hub-warn: #9a6b1f;
+  --plugin-hub-warn-soft: color-mix(in srgb, #9a6b1f 9%, transparent);
+
+  /* Neutrals derive from the host shell's variables. */
+  --plugin-hub-text: var(--ds-text-primary, #212327);
+  --plugin-hub-text-2: var(--ds-text-secondary, #6b7280);
+  --plugin-hub-text-3: var(--ds-text-tertiary, #868d9b);
+  --plugin-hub-surface: var(--ds-bg-primary, #ffffff);
+  --plugin-hub-surface-2: var(--ds-bg-secondary, #f5f7fb);
+  --plugin-hub-surface-3: var(--ds-bg-tertiary, #eef1f7);
+  --plugin-hub-hairline: color-mix(in srgb, currentcolor 10%, transparent);
+  --plugin-hub-line-strong: color-mix(in srgb, currentcolor 18%, transparent);
+  --plugin-hub-inset: color-mix(in srgb, currentcolor 5%, transparent);
+  --plugin-hub-inset-strong: color-mix(in srgb, currentcolor 9%, transparent);
+
+  /* Terminal surfaces are constant across themes. */
+  --plugin-hub-terminal: #212327;
+  --plugin-hub-terminal-text: #a9b8ff;
+  --plugin-hub-terminal-line: rgb(255 255 255 / 10%);
+
+  --plugin-hub-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Pill controls, 16px cards, 28px overlays. */
+  --plugin-hub-radius-sm: 8px;
+  --plugin-hub-radius-md: 16px;
+  --plugin-hub-radius-lg: 28px;
+
+  --plugin-hub-fast: 150ms;
   --plugin-hub-ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --plugin-hub-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
   display: flex;
   flex-direction: column;
   gap: 12px;
-  container-type: inline-size;
+  color: var(--plugin-hub-text);
+  font-size: 13.5px;
+  line-height: 1.55;
 }
 
-@media (prefers-color-scheme: dark) {
-  .root {
-    --plugin-hub-accent: #3fbfae;
-    --plugin-hub-danger: #e0796c;
-  }
+.root::selection {
+  background: color-mix(in srgb, var(--plugin-hub-accent) 24%, transparent);
 }
 
-/* Every number in this UI is monospaced so columns of counts and scores line
-   up vertically instead of shimmering as digits change width. */
+.root :focus-visible {
+  outline: 2px solid var(--plugin-hub-accent);
+  outline-offset: 2px;
+}
+
+/* Numbers and metadata are monospaced and tabular. */
 .num {
   font-family: var(--plugin-hub-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
 }
 
-/* ---- Banners and hints -------------------------------------------------- */
+/* ---- banners ------------------------------------------------------------- */
 
 .banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 13px;
+  gap: 10px;
+  padding: 10px 14px;
   border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 10px;
-  background: var(--plugin-hub-inset);
-  font-size: 13px;
-  animation: settle 320ms var(--plugin-hub-ease) both;
+  border-radius: var(--plugin-hub-radius-md);
+  background: var(--plugin-hub-surface-3);
+  color: var(--plugin-hub-text-2);
+  font-size: 12.5px;
 }
 
 .banner[data-plugin-hub-banner='reload'] {
-  border-color: color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
-  background: var(--plugin-hub-accent-soft);
+  border-color: color-mix(in srgb, var(--plugin-hub-sage) 36%, transparent);
+  background: var(--plugin-hub-sage-soft);
+  color: var(--plugin-hub-sage-ink);
 }
 
-.hint {
-  padding: 7px 11px;
-  border-radius: 8px;
-  background: var(--plugin-hub-inset);
-  color: var(--ds-text-secondary, #71717a);
-  font-size: 12px;
+.bannerButton {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  margin-left: auto;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--plugin-hub-sage);
+  color: #ffffff;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter var(--plugin-hub-fast) var(--plugin-hub-ease);
 }
 
-.notice {
-  max-height: 180px;
+.bannerButton:hover { filter: brightness(0.92); }
+
+/* ---- header: identity, search, filters ------------------------------------ */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--plugin-hub-hairline);
+}
+
+.headTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headTitle {
   margin: 0;
-  padding: 11px 13px;
-  overflow: auto;
-  border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 10px;
-  background: var(--plugin-hub-inset);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--plugin-hub-text-3);
   font-family: var(--plugin-hub-mono);
   font-size: 11.5px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  animation: settle 320ms var(--plugin-hub-ease) both;
 }
 
-/* A failed install is not a neutral note: it needs to read as an error. */
-.notice[data-tone='error'] {
-  border-color: color-mix(in srgb, var(--plugin-hub-danger) 35%, transparent);
-  background: color-mix(in srgb, var(--plugin-hub-danger) 8%, transparent);
-  color: var(--plugin-hub-danger);
+.status[data-online] { color: var(--plugin-hub-sage); }
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentcolor;
 }
 
-/* ---- Toolbar ------------------------------------------------------------ */
+.status[data-online] .statusDot {
+  animation: pluginHubPulse 2.2s ease-in-out infinite;
+}
 
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
+@keyframes pluginHubPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+.headCount {
+  margin-left: auto;
+  color: var(--plugin-hub-text-3);
+  font-family: var(--plugin-hub-mono);
+  font-size: 11.5px;
+}
+
+.iconButton {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--plugin-hub-text-2);
+  cursor: pointer;
+  transition:
+    background var(--plugin-hub-fast) var(--plugin-hub-ease),
+    color var(--plugin-hub-fast) var(--plugin-hub-ease);
 }
 
-.searchWrap {
-  position: relative;
-  flex: 1 1 220px;
-  min-width: 0;
+.iconButton:hover { background: var(--plugin-hub-surface-3); }
+.iconButton:disabled { opacity: 0.45; cursor: not-allowed; }
+.iconButton[data-spinning] svg { animation: pluginHubSpin 0.9s linear infinite; }
+
+@keyframes pluginHubSpin {
+  to { transform: rotate(360deg); }
 }
+
+/* The search field is a pill: the market's one recurring verb. */
+.searchWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 999px;
+  background: var(--plugin-hub-surface-2);
+  color: var(--plugin-hub-text);
+  transition: border-color var(--plugin-hub-fast) var(--plugin-hub-ease);
+}
+
+.searchWrap:focus-within { border-color: var(--plugin-hub-accent); }
 
 .searchIcon {
-  position: absolute;
-  top: 50%;
-  left: 10px;
-  display: flex;
-  color: var(--ds-text-tertiary, #a1a1aa);
-  font-size: 14px;
-  transform: translateY(-50%);
-  pointer-events: none;
+  display: inline-flex;
+  flex: none;
+  color: var(--plugin-hub-text-3);
 }
 
 .search {
-  width: 100%;
-  padding: 8px 11px 8px 31px;
-  border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 9px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
-  transition: border-color 180ms var(--plugin-hub-ease), background 180ms var(--plugin-hub-ease);
-}
-
-.search:focus {
-  border-color: color-mix(in srgb, var(--plugin-hub-accent) 55%, transparent);
-  background: var(--plugin-hub-inset);
-  outline: none;
-}
-
-.search::-webkit-search-cancel-button { cursor: pointer; }
-
-.segmented {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--plugin-hub-inset);
-}
-
-.segment {
-  padding: 5px 11px;
+  flex: 1;
+  min-width: 0;
   border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--ds-text-secondary, #71717a);
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-  transition: color 180ms var(--plugin-hub-ease), background 180ms var(--plugin-hub-ease);
-}
-
-.segment:hover { color: var(--ds-text-primary, inherit); }
-
-.segment[data-active] {
-  background: var(--ds-bg-primary, #fff);
-  color: var(--ds-text-primary, inherit);
-  font-weight: 560;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 7%);
-}
-
-@media (prefers-color-scheme: dark) {
-  .segment[data-active] {
-    background: color-mix(in srgb, currentcolor 14%, transparent);
-    box-shadow: none;
-  }
-}
-
-.select {
-  padding: 7px 9px;
-  border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 9px;
+  outline: none;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
+  font-size: 13.5px;
 }
 
-/* ---- Sort picker --------------------------------------------------------- */
+.search::-webkit-search-cancel-button { display: none; }
 
-.sortRoot { position: relative; }
+.searchKbd {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--plugin-hub-surface-3);
+  color: var(--plugin-hub-text-3);
+  font-family: var(--plugin-hub-mono);
+  font-size: 11px;
+}
+
+/* Filter pills: the active one is a solid accent fill, the rest are outlined. */
+.pillRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--plugin-hub-text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--plugin-hub-fast) var(--plugin-hub-ease),
+    border-color var(--plugin-hub-fast) var(--plugin-hub-ease),
+    color var(--plugin-hub-fast) var(--plugin-hub-ease);
+}
+
+.pill:hover { background: var(--plugin-hub-surface-3); }
+
+.pill[data-active] {
+  border-color: transparent;
+  background: var(--plugin-hub-accent);
+  color: var(--plugin-hub-on-accent);
+}
+
+.pill[data-active]:hover { background: var(--plugin-hub-accent-strong); }
+
+.pillCount {
+  font-family: var(--plugin-hub-mono);
+  font-size: 10.5px;
+  opacity: 0.7;
+}
+
+/* ---- sort picker ----------------------------------------------------------- */
+
+.sortRoot {
+  position: relative;
+  margin-left: auto;
+}
 
 .sortButton {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 10px;
+  height: 32px;
+  padding: 0 13px;
   border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 9px;
+  border-radius: 999px;
   background: transparent;
-  color: inherit;
+  color: var(--plugin-hub-text-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  transition: border-color 180ms var(--plugin-hub-ease), background 180ms var(--plugin-hub-ease);
+  transition: background var(--plugin-hub-fast) var(--plugin-hub-ease);
 }
 
-.sortButton:hover {
-  border-color: color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
-  background: var(--plugin-hub-inset);
-}
-
-.sortButton:active { transform: translateY(1px); }
+.sortButton:hover { background: var(--plugin-hub-surface-3); }
 
 .sortChevron {
-  display: flex;
-  font-size: 11px;
-  color: var(--ds-text-tertiary, #a1a1aa);
-  transition: transform 200ms var(--plugin-hub-ease);
+  display: inline-flex;
+  transition: transform var(--plugin-hub-fast) var(--plugin-hub-ease);
 }
 
-.sortChevron[data-open] { transform: rotate(90deg); }
+.sortChevron[data-open] { transform: rotate(180deg); }
 
 .sortMenu {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   right: 0;
-  z-index: 50;
-  min-width: 140px;
+  z-index: 30;
+  min-width: 150px;
   margin: 0;
   padding: 4px;
   border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 10px;
-  background: var(--ds-bg-primary, #fff);
-  box-shadow: 0 8px 24px -8px rgb(9 9 11 / 18%);
+  border-radius: 14px;
+  background: var(--plugin-hub-surface);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--plugin-hub-text) 18%, transparent);
   list-style: none;
-  animation: settle 200ms var(--plugin-hub-ease) both;
-}
-
-@media (prefers-color-scheme: dark) {
-  .sortMenu { background: var(--ds-bg-primary, #1c1c1f); }
 }
 
 .sortOption {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 10px;
   background: transparent;
-  color: var(--ds-text-secondary, #71717a);
+  color: var(--plugin-hub-text-2);
   font: inherit;
   font-size: 12.5px;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: background 160ms var(--plugin-hub-ease), color 160ms var(--plugin-hub-ease);
+  transition: background var(--plugin-hub-fast) var(--plugin-hub-ease);
 }
 
-.sortOption:hover {
-  background: var(--plugin-hub-inset);
-  color: var(--ds-text-primary, inherit);
-}
+.sortOption:hover { background: var(--plugin-hub-surface-3); }
 
 .sortOption[data-active] {
-  background: var(--plugin-hub-accent-soft);
-  color: var(--plugin-hub-accent);
-  font-weight: 560;
+  color: var(--plugin-hub-accent-ink);
+  font-weight: 700;
 }
 
-.iconButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 9px;
+/* ---- the "widened filter" notice ------------------------------------------ */
+
+.widen {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px dashed var(--plugin-hub-line-strong);
+  border-radius: var(--plugin-hub-radius-md);
   background: transparent;
-  color: var(--ds-text-secondary, #71717a);
-  font-size: 15px;
-  cursor: pointer;
-  transition: color 180ms var(--plugin-hub-ease), border-color 180ms var(--plugin-hub-ease);
-}
-
-.iconButton:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--plugin-hub-accent) 45%, transparent);
-  color: var(--plugin-hub-accent);
-}
-
-.iconButton:active:not(:disabled) { transform: scale(0.94); }
-
-.iconButton[data-spinning] {
-  color: var(--plugin-hub-accent);
-  animation: spin 900ms linear infinite;
-}
-
-.iconButton:disabled { cursor: default; }
-
-/* ---- Filter row --------------------------------------------------------- */
-
-.filterRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-/* The result count sits at the end of the filter row rather than on a line of
-   its own: it is the answer to the filters, so it belongs beside them. */
-.countLine {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin-left: auto;
-  color: var(--ds-text-tertiary, #a1a1aa);
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-.count {
-  font-family: var(--plugin-hub-mono);
+  color: var(--plugin-hub-text-2);
+  font: inherit;
   font-size: 12.5px;
-  font-weight: 580;
-  font-variant-numeric: tabular-nums;
-  color: var(--ds-text-primary, inherit);
-}
-
-.footer {
-  margin: 2px 0 0;
-  color: var(--ds-text-tertiary, #a1a1aa);
-  font-size: 11px;
   text-align: center;
+  cursor: pointer;
+  transition:
+    background var(--plugin-hub-fast) var(--plugin-hub-ease),
+    color var(--plugin-hub-fast) var(--plugin-hub-ease);
 }
 
-.listPane { min-width: 0; }
+.widen:hover {
+  background: var(--plugin-hub-surface-2);
+  color: var(--plugin-hub-text);
+}
 
-/* ---- List --------------------------------------------------------------- */
+/* ---- mutation outcome ------------------------------------------------------ */
+
+.notice {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: var(--plugin-hub-radius-md);
+  background: var(--plugin-hub-surface-2);
+  color: var(--plugin-hub-text-2);
+  font-family: var(--plugin-hub-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.notice[data-tone='error'] {
+  border-color: var(--plugin-hub-danger-line);
+  background: var(--plugin-hub-danger-soft);
+  color: var(--plugin-hub-danger);
+}
+
+/* ---- list ------------------------------------------------------------------ */
+
+.listPane { min-height: 0; }
 
 .list {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .row {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  border-top: 1px solid var(--plugin-hub-hairline);
-  animation: settle 400ms var(--plugin-hub-ease) both;
-  animation-delay: calc(var(--i, 0) * 22ms);
-  transition: background 180ms var(--plugin-hub-ease);
+  gap: 14px;
+  padding: 13px 14px;
+  border-radius: var(--plugin-hub-radius-md);
+  transition: background 160ms var(--plugin-hub-ease);
+  animation: pluginHubRowIn 240ms var(--plugin-hub-ease) both;
+  animation-delay: calc(var(--i, 0) * 18ms);
 }
 
-.row:last-child { border-bottom: 1px solid var(--plugin-hub-hairline); }
+.row:hover { background: var(--plugin-hub-surface-2); }
 
-.row:hover { background: var(--plugin-hub-inset); }
-
-/* The selected row is marked with a rule in the gutter rather than a fill, so
-   the marker survives the hover state instead of fighting it. */
-.row[data-selected]::before {
-  content: "";
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 0;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--plugin-hub-accent);
+@keyframes pluginHubRowIn {
+  from { opacity: 0; transform: translateY(4px); }
 }
-
-.row[data-selected] { background: var(--plugin-hub-accent-soft); }
 
 .rowOpen {
-  display: flex;
   flex: 1;
-  gap: 12px;
-  align-items: flex-start;
   min-width: 0;
-  padding: 13px 4px 13px 13px;
+  padding: 0;
   border: 0;
-  background: none;
+  border-radius: var(--plugin-hub-radius-md);
+  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
@@ -387,7 +470,6 @@
 
 .rowMain {
   display: flex;
-  flex: 1;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
@@ -395,445 +477,366 @@
 
 .nameLine {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .name {
-  font-size: 13.5px;
-  font-weight: 580;
-  letter-spacing: -0.011em;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Tier pills: sage for npm-verified, blue for source-verified, quiet for the rest. */
 .tier {
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: var(--plugin-hub-inset);
-  color: var(--ds-text-secondary, #71717a);
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
   font-size: 10.5px;
-  font-weight: 520;
-  white-space: nowrap;
+  font-weight: 600;
 }
 
 .tier[data-tier='verified-npm'] {
+  background: var(--plugin-hub-sage-soft);
+  color: var(--plugin-hub-sage);
+}
+
+.tier[data-tier='verified-git'] {
   background: var(--plugin-hub-accent-soft);
-  color: var(--plugin-hub-accent);
+  color: var(--plugin-hub-accent-ink);
+}
+
+.tier[data-tier='likely-plugin'],
+.tier[data-tier='related'] {
+  background: var(--plugin-hub-surface-3);
+  color: var(--plugin-hub-text-3);
 }
 
 .installed {
-  padding: 1px 6px;
-  border: 1px solid color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
-  border-radius: 5px;
-  color: var(--plugin-hub-accent);
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--plugin-hub-sage-soft);
+  color: var(--plugin-hub-sage);
   font-size: 10.5px;
-  white-space: nowrap;
+  font-weight: 600;
 }
 
 .summary {
-  display: -webkit-box;
   overflow: hidden;
-  color: var(--ds-text-secondary, #71717a);
+  color: var(--plugin-hub-text-2);
   font-size: 12.5px;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metaLine {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 9px;
-  color: var(--ds-text-tertiary, #a1a1aa);
+  gap: 12px;
+  overflow: hidden;
+  color: var(--plugin-hub-text-3);
+  font-family: var(--plugin-hub-mono);
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .metaItem {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  white-space: nowrap;
-}
-
-.cap {
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--plugin-hub-inset);
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-/* Topics are the author's own words, so they get the accent that inferred
-   tags do not. */
-.topic {
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--plugin-hub-accent-soft);
-  color: var(--plugin-hub-accent);
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-.rowAction {
+  gap: 5px;
   flex: none;
-  padding-right: 13px;
 }
 
-/* Scroll sentinel. Three quiet dots: enough to say "more is coming" without
-   implying an action, because there is nothing here to click. */
-.sentinel {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 20px 0 14px;
-  color: var(--ds-text-tertiary, #a1a1aa);
-  font-size: 11.5px;
-}
+.rowAction { flex: none; }
 
-/* The "what the filter is hiding" prompt. Deliberately styled as a quiet
-   inline note rather than a warning: the filter is doing its job, the user
-   just cannot see it doing so. */
-.widen {
-  width: 100%;
-  padding: 8px 11px;
-  border: 1px dashed color-mix(in srgb, var(--plugin-hub-accent) 35%, transparent);
-  border-radius: 9px;
-  background: transparent;
-  color: var(--plugin-hub-accent);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 180ms var(--plugin-hub-ease);
-}
-
-.widen:hover { background: var(--plugin-hub-accent-soft); }
-
-.widen:active { transform: translateY(1px); }
-
-.countTotal {
-  font-family: var(--plugin-hub-mono);
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-}
-
-/* ---- Buttons ------------------------------------------------------------ */
+/* ---- buttons ---------------------------------------------------------------- */
 
 .buttonPrimary,
-.buttonDanger,
-.buttonGhost {
-  padding: 6px 13px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+.buttonGhost,
+.buttonFlat {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 999px;
   font: inherit;
   font-size: 12.5px;
-  font-weight: 540;
-  white-space: nowrap;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 180ms var(--plugin-hub-ease), border-color 180ms var(--plugin-hub-ease), transform 120ms var(--plugin-hub-ease);
+  transition:
+    background var(--plugin-hub-fast) var(--plugin-hub-ease),
+    border-color var(--plugin-hub-fast) var(--plugin-hub-ease),
+    color var(--plugin-hub-fast) var(--plugin-hub-ease);
 }
 
 .buttonPrimary {
+  border: 0;
   background: var(--plugin-hub-accent);
-  color: #fff;
+  color: var(--plugin-hub-on-accent);
 }
 
-.buttonPrimary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--plugin-hub-accent) 88%, #000);
-}
-
-.buttonDanger {
-  border-color: color-mix(in srgb, var(--plugin-hub-danger) 40%, transparent);
-  background: transparent;
-  color: var(--plugin-hub-danger);
-}
-
-.buttonDanger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--plugin-hub-danger) 10%, transparent);
-}
+.buttonPrimary:hover { background: var(--plugin-hub-accent-strong); }
 
 .buttonGhost {
-  border-color: var(--plugin-hub-hairline);
+  border: 1px solid var(--plugin-hub-line-strong);
   background: transparent;
-  color: var(--ds-text-secondary, #71717a);
+  color: var(--plugin-hub-text-2);
 }
 
-.buttonGhost:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--plugin-hub-accent) 40%, transparent);
-  color: var(--plugin-hub-accent);
+.buttonGhost:hover { background: var(--plugin-hub-surface-3); }
+
+.buttonFlat {
+  border: 1px dashed var(--plugin-hub-line-strong);
+  background: transparent;
+  color: var(--plugin-hub-text-3);
+  font-weight: 600;
 }
 
-/* A one-pixel push on press: the click should feel like it landed on
-   something physical. */
-.buttonPrimary:active:not(:disabled),
-.buttonDanger:active:not(:disabled),
-.buttonGhost:active:not(:disabled) {
-  transform: translateY(1px);
-}
+.buttonFlat:hover { background: var(--plugin-hub-surface-2); }
 
 .buttonPrimary:disabled,
-.buttonDanger:disabled,
 .buttonGhost:disabled {
   opacity: 0.45;
-  cursor: default;
+  cursor: not-allowed;
 }
 
-/* ---- Empty and error states --------------------------------------------- */
+/* ---- empty / sentinel / footer ---------------------------------------------- */
 
 .blank {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 9px;
-  padding: 52px 20px;
-  text-align: center;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 48px 28px;
+  border: 1px dashed var(--plugin-hub-line-strong);
+  border-radius: var(--plugin-hub-radius-lg);
+  background: var(--plugin-hub-surface);
 }
 
 .blankIcon {
-  display: flex;
-  color: var(--ds-text-tertiary, #a1a1aa);
-  opacity: 0.5;
+  color: var(--plugin-hub-text-3);
 }
 
 .blankTitle {
   margin: 0;
-  color: var(--ds-text-primary, inherit);
-  font-size: 13.5px;
-  font-weight: 560;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .blankBody {
-  max-width: 34ch;
   margin: 0;
-  color: var(--ds-text-tertiary, #a1a1aa);
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-
-/* ---- Skeletons ---------------------------------------------------------- */
-
-.skelToolbar,
-.skelName,
-.skelSummary,
-.skelMeta {
-  border-radius: 6px;
-  background: linear-gradient(
-    90deg,
-    var(--plugin-hub-inset) 25%,
-    color-mix(in srgb, currentcolor 11%, transparent) 37%,
-    var(--plugin-hub-inset) 63%
-  );
-  background-size: 400% 100%;
-  animation: shimmer 1500ms ease-in-out infinite;
-}
-
-.skelToolbar {
-  height: 32px;
-  border-radius: 9px;
-}
-
-.skelRow {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 14px 0;
-  border-top: 1px solid var(--plugin-hub-hairline);
-  animation: settle 400ms var(--plugin-hub-ease) both;
-  animation-delay: calc(var(--i, 0) * 50ms);
-}
-
-.skelName { width: 38%; height: 13px; }
-.skelSummary { width: 76%; height: 11px; }
-.skelMeta { width: 46%; height: 10px; }
-
-/* ---- Dialogs ------------------------------------------------------------ */
-
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgb(9 9 11 / 42%);
-  backdrop-filter: blur(3px);
-  animation: fade 200ms var(--plugin-hub-ease) both;
-}
-
-.dialog {
-  width: min(440px, 100%);
-  max-height: 82vh;
-  padding: 20px;
-  overflow-y: auto;
-  border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 16px;
-  background: var(--ds-bg-primary, #fff);
-  color: var(--ds-text-primary, #27272a);
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 6%) inset,
-    0 24px 48px -18px rgb(9 9 11 / 32%);
-  animation: rise 300ms var(--plugin-hub-ease) both;
-}
-
-@media (prefers-color-scheme: dark) {
-  .dialog { background: var(--ds-bg-primary, #1c1c1f); }
-}
-
-.dialogTitle {
-  margin: 0 0 14px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.014em;
-}
-
-.factList {
-  display: flex;
-  flex-direction: column;
-  margin: 0 0 14px;
-}
-
-.factList > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--plugin-hub-hairline);
+  max-width: 46ch;
+  color: var(--plugin-hub-text-2);
   font-size: 12.5px;
 }
 
-.factList > div:last-child { border-bottom: 0; }
-
-.factList dt {
-  color: var(--ds-text-tertiary, #a1a1aa);
-  white-space: nowrap;
-}
-
-.factList dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  text-align: right;
-}
-
-.dialogBody {
-  margin: 0 0 10px;
-  color: var(--ds-text-secondary, #71717a);
-  font-size: 12.5px;
-  line-height: 1.65;
-}
-
-/* The command that will run, shown so the user can read it before accepting. */
-.dialogLabel {
-  margin: 0 0 6px;
-  color: var(--ds-text-secondary, #71717a);
-  font-size: 12px;
-}
-
-.commandBlock {
-  margin: 0 0 10px;
-  padding: 10px 12px;
-  overflow-x: auto;
-  border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 9px;
-  background: var(--plugin-hub-inset);
+.sentinel {
+  padding: 14px;
+  color: var(--plugin-hub-text-3);
   font-family: var(--plugin-hub-mono);
-  font-size: 11.5px;
-  line-height: 1.6;
-  white-space: pre;
+  font-size: 11px;
+  text-align: center;
 }
 
-/* What the README says, set against what will run. */
-.hintCompare {
-  margin: 0 0 10px;
-  padding: 8px 11px;
-  border: 1px solid var(--plugin-hub-hairline);
-  border-radius: 8px;
-  background: var(--plugin-hub-inset);
-  color: var(--ds-text-secondary, #71717a);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.hintCompare code {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: color-mix(in srgb, currentcolor 8%, transparent);
+.footer {
+  margin: 0;
+  color: var(--plugin-hub-text-3);
   font-family: var(--plugin-hub-mono);
   font-size: 11px;
 }
 
-.dialogWarn {
-  margin: 0 0 10px;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--plugin-hub-danger) 32%, transparent);
-  border-radius: 9px;
-  color: var(--plugin-hub-danger);
+/* ---- skeleton ----------------------------------------------------------------- */
+
+.skelHead,
+.skelSearch,
+.skelPills,
+.skelName,
+.skelSummary,
+.skelMeta,
+.skelSide {
+  border-radius: 999px;
+  background: var(--plugin-hub-inset-strong);
+  animation: pluginHubSkel 1.4s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+@keyframes pluginHubSkel {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.skelHead { width: 220px; height: 22px; }
+.skelSearch { width: 100%; height: 40px; }
+.skelPills { width: 320px; height: 32px; }
+
+.skelRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 14px;
+  list-style: none;
+}
+
+.skelRowMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skelName { width: 46%; height: 14px; }
+.skelSummary { width: 78%; height: 11px; }
+.skelMeta { width: 60%; height: 10px; }
+.skelSide { width: 64px; height: 32px; flex: none; }
+
+/* ---- confirm dialog ------------------------------------------------------------ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: color-mix(in srgb, var(--plugin-hub-text) 42%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(480px, 100%);
+  max-height: min(640px, 90vh);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid var(--plugin-hub-hairline);
+  border-radius: var(--plugin-hub-radius-lg);
+  background: var(--plugin-hub-surface);
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--plugin-hub-text) 30%, transparent);
+  color: var(--plugin-hub-text);
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.factList {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.factList > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.factList dt {
+  color: var(--plugin-hub-text-3);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.factList dd {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--plugin-hub-mono);
   font-size: 12px;
-  line-height: 1.6;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialogLabel {
+  margin: 0;
+  color: var(--plugin-hub-text-2);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dialogTerminal { margin-top: -4px; }
+
+.hintCompare {
+  margin: 0;
+  color: var(--plugin-hub-text-2);
+  font-size: 12px;
+}
+
+.hintCompare code {
+  font-family: var(--plugin-hub-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.dialogBody {
+  margin: 0;
+  color: var(--plugin-hub-text-2);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.dialogWarn {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--plugin-hub-radius-sm);
+  background: var(--plugin-hub-warn-soft);
+  color: var(--plugin-hub-warn);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .dialogActions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 4px;
 }
 
-.steps {
-  margin: 0;
-  padding: 12px;
-  overflow-x: auto;
-  border-radius: 10px;
-  background: var(--plugin-hub-inset);
-  font-family: var(--plugin-hub-mono);
-  font-size: 11.5px;
-  line-height: 1.75;
-}
+/* ---- dark theme (fallback values; host variables win when present) ------------ */
 
-/* ---- Motion ------------------------------------------------------------- */
-
-@keyframes settle {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(10px) scale(0.985); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes shimmer {
-  from { background-position: 100% 50%; }
-  to { background-position: 0 50%; }
+@media (prefers-color-scheme: dark) {
+  .root {
+    --plugin-hub-accent-ink: #a9b8ff;
+    --plugin-hub-accent-soft: rgb(77 107 254 / 20%);
+    --plugin-hub-sage: #5ecfc0;
+    --plugin-hub-sage-soft: rgb(94 207 192 / 16%);
+    --plugin-hub-sage-ink: #5ecfc0;
+    --plugin-hub-danger: #e06c5b;
+    --plugin-hub-warn: #e5b567;
+    --plugin-hub-text: var(--ds-text-primary, #eef1f7);
+    --plugin-hub-text-2: var(--ds-text-secondary, #a3aab8);
+    --plugin-hub-text-3: var(--ds-text-tertiary, #7c8393);
+    --plugin-hub-surface: var(--ds-bg-primary, #1d2026);
+    --plugin-hub-surface-2: var(--ds-bg-secondary, #16181d);
+    --plugin-hub-surface-3: var(--ds-bg-tertiary, #282c34);
+    --plugin-hub-terminal: #111318;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .row,
-  .banner,
-  .notice,
-  .dialog,
-  .overlay,
-  .skelRow {
-    animation: none;
-  }
-
-  .iconButton[data-spinning],
-  .skelToolbar,
-  .skelName,
-  .skelSummary,
-  .skelMeta {
-    animation: none;
+  .root *,
+  .root *::before,
+  .root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

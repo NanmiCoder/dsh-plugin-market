@@ -4,7 +4,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type { CatalogEntryView, CatalogResponse, MutationResponse } from '../types.ts'
 import { DetailPanel } from './DetailPanel.tsx'
 import type { PluginHubLocaleKey } from './locales.ts'
-import { Icon, TIER_KEYS, compact, relativeAge } from './ui.tsx'
+import { Icon, TIER_KEYS, Terminal, compact, relativeAge, tagLabel } from './ui.tsx'
 import css from './MarketTab.module.css'
 
 /** Registration-side face supplying host access to the tab. */
@@ -83,6 +83,9 @@ function matches(entry: CatalogEntryView, query: string): boolean {
   ].some(value => value.toLocaleLowerCase().includes(query))
 }
 
+/** The capability tags surfaced on a row's meta line, in vocabulary order. */
+const ROW_CAPS = ['has-web-ui', 'skills', 'needs-api-key'] as const
+
 /** The plugin marketplace tab. */
 export function MarketTab(props: MarketTabProps): React.ReactElement {
   // The injected face arrives spread across props, not nested under a key.
@@ -95,7 +98,6 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
   const [notice, setNotice] = useState<{ text: string, ok: boolean } | undefined>(undefined)
   const [needsReload, setNeedsReload] = useState(false)
   const [confirming, setConfirming] = useState<CatalogEntryView | undefined>(undefined)
-  const [manual, setManual] = useState<CatalogEntryView | undefined>(undefined)
   const [selected, setSelected] = useState<string | undefined>(undefined)
   const [limit, setLimit] = useState(PAGE_SIZE)
   const [refreshing, setRefreshing] = useState(false)
@@ -139,14 +141,14 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
   // The panel follows the list: a selection that filtering removed would
   // otherwise linger, describing something no longer on screen.
   const active = useMemo(
-    () => visible.find(entry => entry.id === selected),
-    [visible, selected],
+    () => visible.find(entry => entry.id === selected) ?? entries.find(entry => entry.id === selected),
+    [visible, entries, selected],
   )
 
   // What the current query would find if the tier filter were not applied.
-  // Sorting by stars inside "one-click" hides most of the catalog — 23 of the
-  // top 25 by stars are not installable — and a filter that silently removes
-  // what you asked to sort by is indistinguishable from a broken crawler.
+  // Sorting inside "one-click" hides most of the catalog, and a filter that
+  // silently removes what you asked to sort by is indistinguishable from a
+  // broken crawler.
   const widerCount = useMemo(() => {
     if (filter === 'all') return 0
     const normalized = query.trim().toLocaleLowerCase()
@@ -155,6 +157,33 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
 
   const grow = useCallback(() => { setLimit(value => value + PAGE_SIZE) }, [])
   useEndlessScroll(sentinelRef, visible.length > limit, grow)
+
+  // Per-filter counts for the pill row: the denominator of each pill is what
+  // makes the tier filter's effect visible without opening it.
+  const filterCounts = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase()
+    const matched = entries.filter(entry => matches(entry, normalized))
+    return {
+      installable: matched.filter(entry => entry.installMethod !== 'manual').length,
+      all: matched.length,
+      installed: matched.filter(entry => entry.installState !== 'not-installed').length,
+    }
+  }, [entries, query])
+
+  // "/" focuses the search field, matching the kbd hint rendered inside it.
+  // It is inert in the detail view because the search input is not mounted.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target
+      if (target instanceof HTMLElement
+        && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      event.preventDefault()
+      searchRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('keydown', onKeyDown) }
+  }, [])
 
   /** Run a mutation and fold its outcome back into the view. */
   const runMutation = useCallback(async (
@@ -173,22 +202,6 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
       setBusy(undefined)
     }
   }, [load])
-
-  /**
-   * Search for a topic, from a chip in the detail panel.
-   *
-   * The filter widens to "all" because a topic is the author's own word for
-   * their project, and restricting the result to one-click-installable entries
-   * would silently drop most of what the click promised. Focus is deferred:
-   * this runs while the detail view is still mounted, so the list's search
-   * input does not exist yet.
-   */
-  const searchTopic = useCallback((topic: string) => {
-    setQuery(topic)
-    setFilter('all')
-    setLimit(PAGE_SIZE)
-    requestAnimationFrame(() => { searchRef.current?.focus() })
-  }, [])
 
   if (view.status === 'loading') return <ListSkeleton />
   if (view.status === 'error') {
@@ -225,8 +238,6 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
             if (active.packageName === undefined) return
             void runMutation(active.id, () => uninstall(active.packageName as string))
           }}
-          onManual={() => { setManual(active) }}
-          onTopic={(topic) => { setSelected(undefined); searchTopic(topic) }}
         />
         {confirming !== undefined && (
           <ConfirmDialog
@@ -240,9 +251,6 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
             }}
           />
         )}
-        {manual !== undefined && (
-          <ManualDialog entry={manual} t={t} onClose={() => { setManual(undefined) }} />
-        )}
       </div>
     )
   }
@@ -252,7 +260,7 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
       {needsReload && (
         <div className={css.banner} data-plugin-hub-banner="reload">
           <span>{t('reloadNeeded')}</span>
-          <button type="button" className={css.buttonGhost} onClick={reload}>{t('reloadNow')}</button>
+          <button type="button" className={css.bannerButton} onClick={reload}>{t('reloadNow')}</button>
         </div>
       )}
       {view.data.upgradeRequired === true && (
@@ -261,17 +269,42 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
       {!installEnabled && (
         <div className={css.banner} data-plugin-hub-banner="disabled">{t('installDisabled')}</div>
       )}
-      {view.data.source !== 'remote' && (
-        <div className={css.hint} data-plugin-hub-source={view.data.source}>
-          {view.data.source === 'seed' ? t('sourceSeed') : t('sourceCache')}
-        </div>
-      )}
 
-      {/* Two deliberate rows: at the width this dialog actually gives us, one
-          row would wrap anyway, and a wrapped row reads as a mistake. */}
-      <div className={css.toolbar}>
+      {/* The header stacks three layers: identity (title, sync status, count),
+          the search field — the primary verb of a marketplace — and the
+          filter pills with the sort picker. */}
+      <header className={css.head}>
+        <div className={css.headTop}>
+          <h2 className={css.headTitle}>{t('tab')}</h2>
+          <span
+            className={css.status}
+            data-online={view.data.source === 'remote' ? '' : undefined}
+            title={view.data.source === 'remote'
+              ? t('sourceRemote')
+              : view.data.source === 'seed' ? t('sourceSeed') : t('sourceCache')}
+          >
+            <span className={css.statusDot} aria-hidden="true" />
+            {t('synced')}
+          </span>
+          <span className={css.headCount}>
+            <span className={css.num}>{visible.length}</span>
+            {' / '}
+            <span className={css.num}>{entries.length}</span>
+          </span>
+          <button
+            type="button"
+            className={css.iconButton}
+            onClick={() => { void load(true) }}
+            disabled={refreshing}
+            aria-label={t('refresh')}
+            title={t('refresh')}
+            data-spinning={refreshing ? '' : undefined}
+          >
+            <Icon name="refresh" size={15} />
+          </button>
+        </div>
         <div className={css.searchWrap}>
-          <span className={css.searchIcon}><Icon name="search" /></span>
+          <span className={css.searchIcon}><Icon name="search" size={16} /></span>
           <input
             ref={searchRef}
             type="search"
@@ -281,44 +314,27 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
             aria-label={t('search')}
             onChange={(event) => { setQuery(event.target.value); setLimit(PAGE_SIZE) }}
           />
+          {query === '' && <kbd className={css.searchKbd} aria-hidden="true">/</kbd>}
         </div>
-        <button
-          type="button"
-          className={css.iconButton}
-          onClick={() => { void load(true) }}
-          disabled={refreshing}
-          aria-label={t('refresh')}
-          title={t('refresh')}
-          data-spinning={refreshing ? '' : undefined}
-        >
-          <Icon name="refresh" />
-        </button>
-      </div>
-
-      <div className={css.filterRow}>
-        <div className={css.segmented} role="group">
-          {(['installable', 'all', 'installed'] as const).map(key => (
-            <button
-              key={key}
-              type="button"
-              className={css.segment}
-              data-active={filter === key ? '' : undefined}
-              aria-pressed={filter === key}
-              onClick={() => { setFilter(key); setLimit(PAGE_SIZE) }}
-            >
-              {t(key === 'all' ? 'filterAll' : key === 'installable' ? 'filterInstallable' : 'filterInstalled')}
-            </button>
-          ))}
+        <div className={css.pillRow}>
+          <div className={css.pills} role="group">
+            {(['installable', 'all', 'installed'] as const).map(key => (
+              <button
+                key={key}
+                type="button"
+                className={css.pill}
+                data-active={filter === key ? '' : undefined}
+                aria-pressed={filter === key}
+                onClick={() => { setFilter(key); setLimit(PAGE_SIZE) }}
+              >
+                {t(key === 'all' ? 'filterAll' : key === 'installable' ? 'filterInstallable' : 'filterInstalled')}
+                <span className={css.pillCount}>{filterCounts[key]}</span>
+              </button>
+            ))}
+          </div>
+          <SortSelect value={sort} onChange={setSort} t={t} />
         </div>
-        <SortSelect value={sort} onChange={setSort} t={t} />
-        {/* The denominator is the point: it shows how much the tier filter is
-            holding back, which is invisible from the numerator alone. */}
-        <span className={css.countLine}>
-          <span className={css.count}>{visible.length}</span>
-          {filter !== 'all' && <span className={css.countTotal}>/ {entries.length}</span>}
-          <span>{t('countSuffix')}</span>
-        </span>
-      </div>
+      </header>
 
       {filter !== 'all' && widerCount > visible.length && (
         <button
@@ -341,7 +357,7 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
         {visible.length === 0
             ? (
               <div className={css.blank} data-plugin-hub-state="empty">
-                <span className={css.blankIcon}><Icon name="empty" size={26} /></span>
+                <span className={css.blankIcon}><Icon name="empty" size={30} /></span>
                 <p className={css.blankTitle}>{query.trim() === '' ? t('empty') : t('emptySearch')}</p>
                 {query.trim() !== '' && (
                   <>
@@ -367,14 +383,12 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
                     t={t}
                     busy={busy === entry.id}
                     installEnabled={installEnabled}
-                    selected={entry.id === selected}
-                    onSelect={() => { setSelected(current => (current === entry.id ? undefined : entry.id)) }}
+                    onSelect={() => { setSelected(entry.id) }}
                     onInstall={() => { setConfirming(entry) }}
                     onUninstall={() => {
                       if (entry.packageName === undefined) return
                       void runMutation(entry.id, () => uninstall(entry.packageName as string))
                     }}
-                    onManual={() => { setManual(entry) }}
                   />
                 ))}
               </ul>
@@ -408,9 +422,6 @@ export function MarketTab(props: MarketTabProps): React.ReactElement {
           }}
         />
       )}
-      {manual !== undefined && (
-        <ManualDialog entry={manual} t={t} onClose={() => { setManual(undefined) }} />
-      )}
     </div>
   )
 }
@@ -422,25 +433,29 @@ interface PluginRowProps {
   readonly t: Translate
   readonly busy: boolean
   readonly installEnabled: boolean
-  readonly selected: boolean
   readonly onSelect: () => void
   readonly onInstall: () => void
   readonly onUninstall: () => void
-  readonly onManual: () => void
 }
 
 /**
- * One catalog row.
+ * One catalog row, in two zones.
  *
- * Rows are hairline-separated rather than boxed: at this density a border per
- * entry turns the list into a wall of rectangles, and elevation carries no
- * meaning here because nothing floats above anything else.
+ * The left zone answers "what is it" — name, tier pill, one line of summary,
+ * then the quiet mono meta trail. The right zone is the single action. Rows
+ * read as list items with a hover tint rather than boxed cards: at this
+ * density a border per entry turns the list into a wall of rectangles.
  * @param props - the entry and its handlers.
  * @returns the row.
  */
 function PluginRow(props: PluginRowProps): React.ReactElement {
-  const { entry, index, t, busy, installEnabled, selected, onSelect, onInstall, onUninstall, onManual } = props
+  const { entry, index, t, busy, installEnabled, onSelect, onInstall, onUninstall } = props
   const isInstalled = entry.installState !== 'not-installed'
+  const manual = entry.installMethod === 'manual'
+  const caps = ROW_CAPS
+    .filter(cap => (entry.tags as readonly string[]).includes(cap))
+    .map(cap => tagLabel(t, cap))
+    .join(' · ')
   return (
     <li
       className={css.row}
@@ -448,46 +463,45 @@ function PluginRow(props: PluginRowProps): React.ReactElement {
       data-plugin-hub-entry={entry.id}
       data-tier={entry.tier}
       data-state={entry.installState}
-      data-selected={selected ? '' : undefined}
     >
       {/* The whole row opens the detail view; the action button stops the
           event so installing never doubles as navigation. */}
-      <button type="button" className={css.rowOpen} onClick={onSelect} aria-expanded={selected}>
+      <button type="button" className={css.rowOpen} onClick={onSelect}>
         <span className={css.rowMain}>
           <span className={css.nameLine}>
             <span className={css.name}>{entry.packageName ?? entry.repo}</span>
             <span className={css.tier} data-tier={entry.tier}>{t(TIER_KEYS[entry.tier])}</span>
-            {isInstalled && <span className={css.installed}>{t('installed')}</span>}
+            {isInstalled && (
+              <span className={css.installed}>
+                {t(entry.installState === 'pending-reload' ? 'pendingReload' : 'installed')}
+              </span>
+            )}
           </span>
           <span className={css.summary}>{entry.summary ?? (entry.description || entry.repo)}</span>
           <span className={css.metaLine}>
             <span className={css.metaItem}>
-              <Icon name="star" />
+              <Icon name="star" size={11} />
               <span className={css.num}>{compact(entry.stars)}</span>
             </span>
-            <span className={css.metaItem}>{relativeAge(entry.pushedAt, t)}</span>
             {entry.license !== undefined && <span className={css.metaItem}>{entry.license}</span>}
-            {entry.hasClient && <span className={css.cap}>{t('badgeWebUi')}</span>}
-            {entry.hasSkills && <span className={css.cap}>{t('badgeSkills')}</span>}
-            {entry.needsApiKey && <span className={css.cap}>{t('badgeApiKey')}</span>}
-            {entry.topics.slice(0, 3).map(topic => (
-              <span key={topic} className={css.topic}>{topic}</span>
-            ))}
+            <span className={css.metaItem}>{relativeAge(entry.pushedAt, t)}</span>
+            {entry.runsBuildScript && <span className={css.metaItem}>{t('badgeBuild')}</span>}
+            {caps !== '' && <span className={css.metaItem}>{caps}</span>}
           </span>
         </span>
       </button>
       <div className={css.rowAction}>
-        {entry.installMethod === 'manual'
+        {manual
           ? (
-            <button type="button" className={css.buttonGhost} onClick={onManual}>
-              {t('manualShort')}
+            <button type="button" className={css.buttonFlat} onClick={onSelect}>
+              {t('manualOnly')}
             </button>
           )
           : isInstalled
             ? (
               <button
                 type="button"
-                className={css.buttonDanger}
+                className={css.buttonGhost}
                 disabled={busy || !installEnabled}
                 onClick={onUninstall}
               >
@@ -516,13 +530,18 @@ function PluginRow(props: PluginRowProps): React.ReactElement {
 function ListSkeleton(): React.ReactElement {
   return (
     <div className={css.root} aria-busy="true" data-plugin-hub-state="loading">
-      <div className={css.skelToolbar} />
+      <div className={css.skelHead} />
+      <div className={css.skelSearch} />
+      <div className={css.skelPills} />
       <ul className={css.list}>
         {Array.from({ length: 6 }, (_, index) => (
           <li key={index} className={css.skelRow} style={{ '--i': index } as React.CSSProperties}>
-            <span className={css.skelName} />
-            <span className={css.skelSummary} />
-            <span className={css.skelMeta} />
+            <span className={css.skelRowMain}>
+              <span className={css.skelName} />
+              <span className={css.skelSummary} />
+              <span className={css.skelMeta} />
+            </span>
+            <span className={css.skelSide} />
           </li>
         ))}
       </ul>
@@ -543,7 +562,7 @@ interface SortSelectProps {
  * The native `<select>` renders with the OS's own chrome — a blue glow on
  * focus, a dropdown that ignores the page's theme — and there is no way to
  * style it away. This is a button plus a popover instead, so it sits in the
- * same visual language as the segmented filter beside it.
+ * same visual language as the filter pills beside it.
  * @param props - the current sort and its handler.
  * @returns the picker.
  */
@@ -564,8 +583,8 @@ function SortSelect(props: SortSelectProps): React.ReactElement {
   }, [open])
 
   const options: { value: Sort, label: PluginHubLocaleKey }[] = [
-    { value: 'stars', label: 'sortStars' },
     { value: 'score', label: 'sortScore' },
+    { value: 'stars', label: 'sortStars' },
     { value: 'updated', label: 'sortUpdated' },
   ]
 
@@ -578,8 +597,8 @@ function SortSelect(props: SortSelectProps): React.ReactElement {
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        {t(options.find(option => option.value === value)?.label ?? 'sortStars')}
-        <span className={css.sortChevron} data-open={open ? '' : undefined}><Icon name="chevron" /></span>
+        {t(options.find(option => option.value === value)?.label ?? 'sortScore')}
+        <span className={css.sortChevron} data-open={open ? '' : undefined}><Icon name="down" size={12} /></span>
       </button>
       {open && (
         <ul className={css.sortMenu} role="listbox">
@@ -624,12 +643,17 @@ function ConfirmDialog(props: {
         {/* What runs is the catalog's normalized spec — the same thing
             `dsh plugin add` would run. The author's README wording is shown
             underneath for reference when it differs. */}
-        <p className={css.dialogLabel}>{t('willRun')}</p>
-        <pre className={css.commandBlock}>pnpm add {entry.installSpec}</pre>
+        <p className={css.dialogLabel}>{t('willRunConfirm')}</p>
+        <Terminal
+          command={`$ pnpm add ${entry.installSpec ?? ''}`}
+          copyLabel={t('copy')}
+          copiedLabel={t('copied')}
+          className={css.dialogTerminal}
+        />
         {entry.installHint !== undefined && entry.installHint.command !== ''
           && entry.installHint.command !== `pnpm add ${entry.installSpec ?? ''}` && (
           <p className={css.hintCompare}>
-            {t('authorSays')} <code>{entry.installHint.command}</code>
+            {t('authorHint')} <code>{entry.installHint.command}</code>
           </p>
         )}
         <p className={css.dialogBody}>{t('confirmBody')}</p>
@@ -637,33 +661,6 @@ function ConfirmDialog(props: {
         <div className={css.dialogActions}>
           <button type="button" className={css.buttonGhost} onClick={onCancel}>{t('confirmCancel')}</button>
           <button type="button" className={css.buttonPrimary} onClick={onConfirm}>{t('confirmOk')}</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/** Manual install instructions for entries pnpm cannot install unattended. */
-function ManualDialog(props: {
-  readonly entry: CatalogEntryView
-  readonly t: Translate
-  readonly onClose: () => void
-}): React.ReactElement {
-  const { entry, t, onClose } = props
-  const steps = entry.manualSteps ?? [
-    `git clone ${entry.url}.git`,
-    `cd ${entry.repo.split('/')[1] ?? entry.repo}`,
-    'pnpm install && pnpm build',
-    'dsh plugin --profile web add $(pwd)',
-  ]
-  return (
-    <div className={css.overlay} role="dialog" aria-modal="true" data-plugin-hub-dialog="manual">
-      <div className={css.dialog}>
-        <h3 className={css.dialogTitle}>{t('manualTitle')}</h3>
-        <p className={css.dialogBody}>{t('manualBody')}</p>
-        <pre className={css.steps}>{steps.join('\n')}</pre>
-        <div className={css.dialogActions}>
-          <button type="button" className={css.buttonGhost} onClick={onClose}>{t('close')}</button>
         </div>
       </div>
     </div>

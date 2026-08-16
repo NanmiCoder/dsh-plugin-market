@@ -1,0 +1,70 @@
+name: Verify and Deploy WebUI
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.repository == 'NanmiCoder/dsh-plugin-market'
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install pinned toolchain
+        run: npm install --global pnpm@10.33.0 vercel@59.1.3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify plugin package
+        run: |
+          pnpm build
+          pnpm verify
+
+      - name: Select Vercel environment
+        id: target
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            echo "environment=production" >> "${GITHUB_OUTPUT}"
+            echo "flags=--prod" >> "${GITHUB_OUTPUT}"
+          else
+            echo "environment=preview" >> "${GITHUB_OUTPUT}"
+            echo "flags=" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Pull Vercel project settings
+        run: >-
+          vercel pull --yes
+          --environment=${{ steps.target.outputs.environment }}
+          --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build WebUI for Vercel
+        run: >-
+          vercel build
+          ${{ steps.target.outputs.flags }}
+          --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy prebuilt WebUI
+        shell: bash
+        run: |
+          deployment_url="$(vercel deploy --prebuilt ${{ steps.target.outputs.flags }} --token=${{ secrets.VERCEL_TOKEN }})"
+          echo "Deployed ${deployment_url}"
+          echo "::notice title=Vercel deployment::${deployment_url}"

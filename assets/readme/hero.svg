@@ -4,70 +4,70 @@
 
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
-      <path d="M0 0L8 4L0 8Z" fill="#45B7FF"/>
+      <path d="M0 0L8 4L0 8Z" fill="#3EC98F"/>
     </marker>
   </defs>
 
-  <rect width="1200" height="380" rx="28" fill="#071018"/>
-  <path d="M56 315H1144" stroke="#203247" stroke-width="1.5"/>
+  <rect width="1200" height="380" rx="28" fill="#0B0D0E"/>
+  <path d="M56 315H1144" stroke="#232B27" stroke-width="1.5"/>
 
   <g id="title-block" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif">
-    <text x="58" y="66" fill="#7E93AA" font-size="17" font-weight="650" letter-spacing="2.1">DEEPSEEK HARNESS · VERIFIED PLUGIN CATALOG</text>
-    <text x="58" y="145" fill="#F4F7FB" font-size="57" font-weight="760" letter-spacing="-2.2">dsh-plugin-market</text>
-    <text x="58" y="198" fill="#C2CEDA" font-size="26" font-weight="520">Discover broadly. Verify deterministically.</text>
-    <text x="58" y="238" fill="#C2CEDA" font-size="26" font-weight="520">Install only normalized specs.</text>
+    <text x="58" y="66" fill="#8A958E" font-size="17" font-weight="650" letter-spacing="2.1">DEEPSEEK HARNESS · VERIFIED PLUGIN CATALOG</text>
+    <text x="58" y="145" fill="#ECEEED" font-size="57" font-weight="760" letter-spacing="-2.2">dsh-plugin-market</text>
+    <text x="58" y="198" fill="#C6CCC7" font-size="26" font-weight="520">Discover broadly. Verify deterministically.</text>
+    <text x="58" y="238" fill="#C6CCC7" font-size="26" font-weight="520">Install only normalized specs.</text>
 
     <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14">
-      <rect x="58" y="266" width="164" height="38" rx="19" fill="#102334" stroke="#2E6689"/>
-      <circle cx="80" cy="285" r="6" fill="#45B7FF"/>
-      <text x="96" y="290" fill="#BFE6FF" font-weight="700">CATALOG-FIRST</text>
-      <text x="244" y="290" fill="#6F8499">RULES · EVIDENCE · SAFE SPEC</text>
+      <rect x="58" y="266" width="164" height="38" rx="19" fill="#10281E" stroke="#2BA772"/>
+      <circle cx="80" cy="285" r="6" fill="#3EC98F"/>
+      <text x="96" y="290" fill="#BFEEDA" font-weight="700">CATALOG-FIRST</text>
+      <text x="244" y="290" fill="#77827B">RULES · EVIDENCE · SAFE SPEC</text>
     </g>
   </g>
 
   <g id="catalog-pipeline" transform="translate(728 44)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
-    <text x="0" y="17" fill="#7E93AA" font-size="14" letter-spacing="1.6">INSTALLABILITY PIPELINE</text>
+    <text x="0" y="17" fill="#8A958E" font-size="14" letter-spacing="1.6">INSTALLABILITY PIPELINE</text>
 
     <g transform="translate(0 43)">
-      <rect width="176" height="62" rx="13" fill="#0E1D2B" stroke="#294257"/>
-      <text x="18" y="27" fill="#F4F7FB" font-size="14" font-weight="700">CANDIDATES</text>
-      <text x="18" y="47" fill="#7E93AA" font-size="12">topics · npm · git</text>
+      <rect width="176" height="62" rx="13" fill="#121615" stroke="#2A332E"/>
+      <text x="18" y="27" fill="#ECEEED" font-size="14" font-weight="700">CANDIDATES</text>
+      <text x="18" y="47" fill="#8A958E" font-size="12">topics · npm · git</text>
     </g>
-    <path d="M176 74H208" stroke="#45B7FF" stroke-width="1.8" marker-end="url(#arrow)"/>
+    <path d="M176 74H208" stroke="#3EC98F" stroke-width="1.8" marker-end="url(#arrow)"/>
 
     <g transform="translate(216 43)">
-      <rect width="176" height="62" rx="13" fill="#0E1D2B" stroke="#2E6689"/>
-      <text x="18" y="27" fill="#F4F7FB" font-size="14" font-weight="700">RULE FENCE</text>
-      <text x="18" y="47" fill="#7E93AA" font-size="12">manifest · patch · build</text>
+      <rect width="176" height="62" rx="13" fill="#121615" stroke="#2BA772"/>
+      <text x="18" y="27" fill="#ECEEED" font-size="14" font-weight="700">RULE FENCE</text>
+      <text x="18" y="47" fill="#8A958E" font-size="12">manifest · patch · build</text>
     </g>
 
-    <path d="M304 105V139" stroke="#45B7FF" stroke-width="1.8" marker-end="url(#arrow)"/>
+    <path d="M304 105V139" stroke="#3EC98F" stroke-width="1.8" marker-end="url(#arrow)"/>
 
     <g transform="translate(0 147)">
-      <rect width="392" height="128" rx="15" fill="#0E1D2B" stroke="#294257"/>
+      <rect width="392" height="128" rx="15" fill="#121615" stroke="#2A332E"/>
       <g transform="translate(16 15)">
         <circle cx="8" cy="15" r="6" fill="#5EE0A1"/>
-        <text x="25" y="20" fill="#F4F7FB" font-size="13" font-weight="700">VERIFIED NPM</text>
+        <text x="25" y="20" fill="#ECEEED" font-size="13" font-weight="700">VERIFIED NPM</text>
         <text x="244" y="20" fill="#8CF0BE" font-size="12">package-name</text>
       </g>
-      <path d="M16 49H376" stroke="#203247"/>
+      <path d="M16 49H376" stroke="#232B27"/>
       <g transform="translate(16 56)">
-        <circle cx="8" cy="15" r="6" fill="#45B7FF"/>
-        <text x="25" y="20" fill="#F4F7FB" font-size="13" font-weight="700">VERIFIED GIT</text>
-        <text x="218" y="20" fill="#9EDAFF" font-size="12">github:owner/repo</text>
+        <circle cx="8" cy="15" r="6" fill="#3EC98F"/>
+        <text x="25" y="20" fill="#ECEEED" font-size="13" font-weight="700">VERIFIED GIT</text>
+        <text x="218" y="20" fill="#9FE8C8" font-size="12">github:owner/repo</text>
       </g>
-      <path d="M16 90H376" stroke="#203247"/>
+      <path d="M16 90H376" stroke="#232B27"/>
       <g transform="translate(16 97)">
-        <circle cx="8" cy="15" r="6" fill="#667A8E"/>
-        <text x="25" y="20" fill="#9AABBA" font-size="13" font-weight="700">MANUAL / RELATED</text>
-        <text x="267" y="20" fill="#667A8E" font-size="12">never run</text>
+        <circle cx="8" cy="15" r="6" fill="#5F6862"/>
+        <text x="25" y="20" fill="#9AA39D" font-size="13" font-weight="700">MANUAL / RELATED</text>
+        <text x="267" y="20" fill="#5F6862" font-size="12">never run</text>
       </g>
     </g>
   </g>
 
   <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13">
-    <text x="58" y="346" fill="#6F8499">BROWSER SENDS: catalog id</text>
-    <text x="483" y="346" fill="#6F8499">HOST RESOLVES: exact spec</text>
+    <text x="58" y="346" fill="#77827B">BROWSER SENDS: catalog id</text>
+    <text x="483" y="346" fill="#77827B">HOST RESOLVES: exact spec</text>
     <circle cx="868" cy="341" r="6" fill="#5EE0A1"/>
     <text x="884" y="346" fill="#A8EACB">pnpm add → reconcile → hot mount</text>
   </g>

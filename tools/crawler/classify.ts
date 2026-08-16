@@ -12,7 +12,7 @@
  */
 
 import { DIRECTORY_DENYLIST, TOPICS, UPSTREAM_REPOS } from './config.ts'
-import type { Candidate, PackageManifest, RawRepo } from './types.ts'
+import type { Candidate, Label, NpmFacts, PackageManifest, RawRepo } from './types.ts'
 import type { InstallMethod, Tier } from '../../src/types.ts'
 
 /** Signals extracted from one candidate. */
@@ -279,6 +279,96 @@ function manualSteps(candidate: Candidate): string[] {
 
 /** One classified candidate, as the emit stage consumes it. */
 export type Classified = { candidate: Candidate, verdict: NonNullable<ReturnType<typeof classify>> }
+
+/**
+ * Extract the npm package spec from a README-documented install command.
+ *
+ * The labelling model reports the command verbatim (`dsh plugin --profile web
+ * add @scope/pkg`, `pnpm add pkg@1.2.3`, `npm i pkg`); this pulls the package
+ * out of it so the pipeline can check that package against the registry.
+ * Flags with values (`--profile web`) are skipped; a version suffix is
+ * stripped. Returns undefined when the command has no recognizable package —
+ * multiline prose, a github: spec, or a path install.
+ * @param command - the verbatim install command.
+ * @returns the package name, or undefined.
+ */
+export function extractDocumentedPackage(command: string): string | undefined {
+  const tokens = command.trim().split(/\s+/)
+  const verb = tokens.findIndex(token => ['add', 'install', 'i'].includes(token))
+  if (verb === -1) return undefined
+  for (let index = verb + 1; index < tokens.length; index += 1) {
+    const token = tokens[index] as string
+    if (token.startsWith('-')) {
+      // Long flags either take a separate value (`--profile web`) or carry it
+      // inline (`--profile=web`); skip the separate value when there is one.
+      if (!token.includes('=')) index += 1
+      continue
+    }
+    if (!/^(@[a-z0-9_.-]+\/)?[a-z0-9][a-z0-9._-]*?(@.+)?$/i.test(token)) return undefined
+    return token.replace(/@[\w.^~<>*=]+$/, '')
+  }
+  return undefined
+}
+
+/**
+ * Whether the labelling model's relevance verdict keeps a row off the catalog.
+ *
+ * The gate deliberately covers only the two tiers that carry no deterministic
+ * install proof: `related` and `likely-plugin` were admitted on circumstantial
+ * evidence (a topic, a bin, a skills directory, an unpublished bundle), which
+ * is exactly the shape exposure-farming repos take. `verified-npm` and
+ * `verified-git` are proven by the npm manifest or a buildable bundle — hard
+ * evidence that outweighs any model judgement, so those tiers are never
+ * filtered here.
+ *
+ * Anything but an explicit `unrelated` keeps the row: a missing verdict (an
+ * old cached label, a degraded call) must never silently empty the catalog.
+ * @param tier - the deterministic tier.
+ * @param relevance - the model's relevance verdict, when there is one.
+ * @returns true when the row should be dropped at emit.
+ */
+export function dropsAsUnrelated(tier: Tier, relevance: Label['relevance']): boolean {
+  if (relevance !== 'unrelated') return false
+  return tier === 'related' || tier === 'likely-plugin'
+}
+
+/**
+ * Re-verify a README-documented npm install path against the registry.
+ *
+ * The deterministic classifier can only see npm packages it discovered itself
+ * (a swept keyword, a manifest name it probed). A README that documents
+ * `dsh plugin add <pkg>` is a lead pointing at a package that may carry none
+ * of those keywords — the case for every `@linxin666/*`-style scope. The label
+ * reports the command verbatim; this is the deterministic judge on that lead:
+ * only a published manifest declaring `dsh.bundle` upgrades the row, so what
+ * gets executed is still proven by npm, never by prose.
+ *
+ * Two rows are never upgraded: one the model judged unrelated to DSH (an
+ * unrelated repo stays dropped even when a lead happens to verify — that
+ * combination smells like a re-publication by someone else), and one already
+ * carrying a deterministic verdict of its own.
+ * @param verdict - the classification under test (mutated nowhere, returned new).
+ * @param label - the model's label for the same candidate.
+ * @param facts - the registry facts for the documented package, when fetched.
+ * @returns the upgraded verdict, or undefined when the row stands.
+ */
+export function documentedNpmUpgrade(
+  verdict: Classification, label: Label | undefined, facts: NpmFacts | undefined,
+): Classification | undefined {
+  if (verdict.tier !== 'related' && verdict.tier !== 'likely-plugin') return undefined
+  if (label?.installMethod !== 'npm' || label.installCommand === '') return undefined
+  if (label.relevance === 'unrelated') return undefined
+  if (facts?.hasDshBundle !== true) return undefined
+  return {
+    ...verdict,
+    tier: 'verified-npm',
+    installMethod: 'npm',
+    installSpec: facts.name,
+    runsBuildScript: false,
+    reason: `README-documented package ${facts.name} declares dsh.bundle on npm`,
+    capabilities: { ...verdict.capabilities, hasClient: verdict.capabilities.hasClient || facts.hasClient },
+  }
+}
 
 /**
  * Drop repository-root rows that a sibling sub-package already covers.

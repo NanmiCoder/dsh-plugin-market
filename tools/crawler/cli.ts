@@ -15,10 +15,10 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { classify, dropRedundantRoots, extractSignals, monorepoDirectories, parseManifest } from './classify.ts'
+import { classify, documentedNpmUpgrade, dropRedundantRoots, dropsAsUnrelated, extractDocumentedPackage, extractSignals, monorepoDirectories, parseManifest } from './classify.ts'
 import { DATA_DIR, README_CANDIDATES, SCHEMA_VERSION, TOPICS } from './config.ts'
 import { fetchNpmFacts, fetchReadme, githubRepoFromUrl, mapLimit, searchNpm } from './enrich.ts'
 import { drainSlice, fetchSubPackages, GitHubClient, planSlices } from './github.ts'
@@ -220,6 +220,13 @@ async function main(): Promise<void> {
     try {
       const result = await labelAll(classified.map(row => row.candidate), {
         apiKey, previous, force: options.force, log,
+        // Persist progress as it accrues: a full re-label takes tens of
+        // minutes, and the last full sweep was SIGKILLed mid-labelling, losing
+        // every computed label. With checkpoints a rerun resumes from cache.
+        checkpoint: {
+          every: 200,
+          write: labels => { writeLabelsCheckpoint(labels, options.dryRun, options.limit !== undefined) },
+        },
       })
       labels = result.labels
       log(
@@ -236,9 +243,49 @@ async function main(): Promise<void> {
   }
 
   // ---- Emit ----------------------------------------------------------------
+  // README-documented install commands are leads, re-verified against npm.
+  // The keyword sweep only sees packages that carry a DSH keyword, so a plugin
+  // published under an arbitrary scope (@linxin666/* and the like) is invisible
+  // to the deterministic classifier even though its README tells users exactly
+  // what to run. The label reports that command verbatim; the registry stays
+  // the judge — only a published manifest declaring dsh.bundle upgrades a row.
+  const hintChecks = await mapLimit(classified, async (row) => {
+    const label = labels.get(candidateId(row.candidate))
+    if (label?.installMethod !== 'npm' || label.installCommand === '') return undefined
+    const pkg = extractDocumentedPackage(label.installCommand)
+    if (pkg === undefined) return undefined
+    const facts = await fetchNpmFacts(pkg)
+    if (facts === undefined || !facts.hasDshBundle) return undefined
+    return facts
+  })
+  let hintUpgraded = 0
+  hintChecks.forEach((facts, index) => {
+    if (facts === undefined) return
+    const row = classified[index] as (typeof classified)[number]
+    const next = documentedNpmUpgrade(row.verdict, labels.get(candidateId(row.candidate)), facts)
+    if (next === undefined) return
+    row.verdict = next
+    hintUpgraded += 1
+  })
+  if (hintUpgraded > 0) {
+    log(`verify-hints: upgraded ${hintUpgraded} entries to verified-npm via README-documented packages`)
+  }
+
   const deduped = dropRedundantRoots(classified, log)
+  // The relevance gate: rows the model judged unrelated to DSH never reach the
+  // catalog. Only the unproven tiers are gated — a verified bundle outweighs
+  // any model verdict (see dropsAsUnrelated).
+  const publishable = deduped.filter(({ candidate, verdict }) => {
+    const relevance = labels.get(candidateId(candidate))?.relevance
+    if (!dropsAsUnrelated(verdict.tier, relevance)) return true
+    log(`emit: dropped ${candidateId(candidate)} (${verdict.tier}, judged unrelated to DSH)`)
+    return false
+  })
+  if (publishable.length !== deduped.length) {
+    log(`emit: relevance gate kept ${publishable.length} of ${deduped.length}`)
+  }
   const siblingCount = new Map<string, number>()
-  const entries: CatalogEntry[] = deduped.map(({ candidate, verdict }) => {
+  const entries: CatalogEntry[] = publishable.map(({ candidate, verdict }) => {
     const repo = candidate.repo
     const id = candidateId(candidate)
     const label = labels.get(id)
@@ -327,6 +374,39 @@ function readPreviousLabels(): Map<string, CachedLabel> {
 }
 
 /**
+ * Where outputs land for this run: `data/` for a real run, `.tmp/` for
+ * --dry-run and --limit, which must never overwrite the published catalog.
+ * @param dryRun - write to .tmp/.
+ * @param truncated - a --limit partial run, redirected like --dry-run.
+ * @returns the absolute output directory.
+ */
+function outputDirFor(dryRun: boolean, truncated: boolean): string {
+  return join(ROOT, dryRun || truncated ? '.tmp/data/v1' : DATA_DIR)
+}
+
+/**
+ * Persist in-progress labels so a killed run resumes from the cache.
+ *
+ * Written to the run's output directory — the same labels.json the emit stage
+ * finally rewrites. For a real run that means data/v1/labels.json is replaced
+ * while the previous catalog.json still sits beside it; that is safe because
+ * nothing consumes labels.json except the next run's cache read. The write is
+ * staged through a temp file and renamed so a crash mid-write cannot tear the
+ * cache (a corrupt labels.json would read as "no cache" and force a full
+ * re-label, wasting exactly what the checkpoint saved).
+ * @param labels - the labels accumulated so far.
+ * @param dryRun - write to .tmp/.
+ * @param truncated - a --limit partial run.
+ */
+function writeLabelsCheckpoint(labels: Map<string, CachedLabel>, dryRun: boolean, truncated: boolean): void {
+  const outputDir = outputDirFor(dryRun, truncated)
+  mkdirSync(outputDir, { recursive: true })
+  const staging = join(outputDir, '.labels.json.staging')
+  writeFileSync(staging, `${JSON.stringify(Object.fromEntries(labels), null, 2)}\n`)
+  renameSync(staging, join(outputDir, 'labels.json'))
+}
+
+/**
  * Write the catalog, index, metadata, and label cache.
  * @param entries - the ranked entries.
  * @param labels - the label cache to persist.
@@ -340,7 +420,7 @@ function writeOutputs(
   // must never become the published catalog: its output is a deliberately
   // truncated slice, and writing it over data/ silently replaces thousands of
   // entries with a few dozen. Redirect it the same way --dry-run is redirected.
-  const outputDir = join(ROOT, dryRun || truncated ? '.tmp/data/v1' : DATA_DIR)
+  const outputDir = outputDirFor(dryRun, truncated)
   if (truncated && !dryRun) {
     log('emit: --limit produces a partial catalog, so writing to .tmp/ instead of data/')
   }

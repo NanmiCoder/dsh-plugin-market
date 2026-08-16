@@ -8,5 +8,3 @@ declare const __CATALOG_STATS__: {
   readonly webUi: number
   readonly generatedAt: string
 }
-
-declare const __PREVIEW_ENTRIES__: unknown

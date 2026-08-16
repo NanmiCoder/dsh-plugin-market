@@ -59,31 +59,50 @@ export async function fetchReadme(
  *
  * The `/latest` document carries the published manifest, including the `dsh`
  * section, so `hasDshBundle` reflects what pnpm would install.
+ *
+ * 429s are retried with backoff: the crawl issues hundreds of lookups per run,
+ * and the registry answers bursts with rate limiting — a silent undefined here
+ * used to demote real plugins to "unpublished", which is exactly how verified
+ * bundles were misclassified as manual installs. A genuine 404 stays a plain
+ * undefined; only throttling (and transient 5xx) earns a retry.
  * @param name - the package name.
- * @returns the facts, or undefined when unpublished.
+ * @returns the facts, or undefined when unpublished or persistently throttled.
  */
 export async function fetchNpmFacts(name: string): Promise<NpmFacts | undefined> {
   const encoded = name.replace('/', '%2f')
-  try {
-    const response = await fetch(`https://registry.npmjs.org/${encoded}/latest`, {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(20_000),
-    })
-    if (!response.ok) return undefined
-    const manifest = await response.json() as PackageManifest & { repository?: { url?: string } }
-    const repositoryUrl = typeof manifest.repository === 'string'
-      ? manifest.repository
-      : manifest.repository?.url
-    return {
-      name,
-      version: manifest.version ?? '',
-      hasDshBundle: manifest.dsh?.bundle?.patch !== undefined,
-      hasClient: manifest.dsh?.client !== undefined || manifest.dshClient !== undefined,
-      repositoryUrl,
+  const url = `https://registry.npmjs.org/${encoded}/latest`
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(20_000),
+      })
+      if (response.status === 429 || response.status >= 500) {
+        const retryAfter = Number(response.headers.get('retry-after'))
+        const backoff = Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 1000 * (4 ** attempt)
+        await new Promise(resolve => setTimeout(resolve, Math.min(backoff, 30_000)))
+        continue
+      }
+      if (!response.ok) return undefined
+      const manifest = await response.json() as PackageManifest & { repository?: { url?: string } }
+      const repositoryUrl = typeof manifest.repository === 'string'
+        ? manifest.repository
+        : manifest.repository?.url
+      return {
+        name,
+        version: manifest.version ?? '',
+        hasDshBundle: manifest.dsh?.bundle?.patch !== undefined,
+        hasClient: manifest.dsh?.client !== undefined || manifest.dshClient !== undefined,
+        repositoryUrl,
+      }
+    } catch {
+      // A timeout or reset is as transient as a 429 — same retry, same backoff.
+      await new Promise(resolve => setTimeout(resolve, 1000 * (4 ** attempt)))
     }
-  } catch {
-    return undefined
   }
+  return undefined
 }
 
 /** One package as reported by npm's search endpoint. */

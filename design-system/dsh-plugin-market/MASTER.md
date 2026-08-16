@@ -4,6 +4,8 @@
 > If that file exists, its rules **override** this Master file.
 > If not, strictly follow the rules below.
 
+> **STATUS (2026-08):** This Master file was machine-generated (OLED dark + newsletter pattern) and is **superseded** by `pages/landing.md`, which defines the actual shipped direction: the light, over-rounded marketplace language from the `Plugin Market.dc.html` design comp (canvas `#f5f7fb`, accent blue `#4d6bfe` + sage `#0f9d8f`, Caprasimo/Figtree), applied to both the public site and the in-DSH settings panel. Treat the rules below as historical reference only; where they conflict with `pages/landing.md`, the page file wins.
+
 ---
 
 **Project:** DSH Plugin Market

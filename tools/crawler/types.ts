@@ -81,6 +81,21 @@ export interface Label {
   readonly isSpam: boolean
   readonly confidence: number
   /**
+   * Whether the candidate genuinely belongs to the DSH ecosystem, judged from
+   * evidence (manifest, README), never from topics alone — topics are free to
+   * add and are the known abuse vector for exposure farming.
+   *
+   *   - `plugin`: built as a DSH plugin (bundle-shaped, or documented for DSH).
+   *   - `adjacent`: not a plugin, but genuinely made for DSH users (a companion
+   *     CLI, a skills pack, a theme whose README addresses DSH explicitly).
+   *   - `unrelated`: no real DSH connection — a generic agent tool or resource
+   *     riding the discovery topics.
+   *
+   * Optional so labels cached before the field existed stay valid; an absent
+   * verdict never filters an entry out.
+   */
+  readonly relevance?: 'plugin' | 'adjacent' | 'unrelated'
+  /**
    * How the README says to install it — the author's own instruction, not
    * something inferred from the manifest. The host verifies this separately
    * before acting on it; it is never executed as read.

@@ -12,7 +12,7 @@
  *     drain below asserts it collected what the query declared.
  */
 
-import { PAGE_SIZE, SEARCH_CEILING, SPLIT_THRESHOLD, STAR_BUCKETS } from './config.ts'
+import { DIRECTORY_DENYLIST, PAGE_SIZE, SEARCH_CEILING, SPLIT_THRESHOLD, STAR_BUCKETS } from './config.ts'
 import type { RawRepo } from './types.ts'
 
 /** One page of search results. */
@@ -383,6 +383,40 @@ export async function fetchSubPackages(
   targets: { repo: string, directories: string[] }[], client: GitHubClient,
 ): Promise<Map<string, { pkg?: string, patch?: string }>> {
   const results = new Map<string, { pkg?: string, patch?: string }>()
+  await probeDirectories(targets, client, results)
+
+  // Conventional workspace roots (packages/, plugins/, ...) hold no
+  // package.json of their own — their children are the packages, and missing
+  // them is what leaves monorepos like dsh-web-ui classified as "related"
+  // while a verified bundle sits one directory deeper. Any probed directory
+  // that yielded nothing gets its tree listed and each child probed in turn.
+  const expandTargets = targets
+    .map(target => ({
+      repo: target.repo,
+      directories: target.directories.filter(directory => !results.has(`${target.repo}:${directory}`)),
+    }))
+    .filter(target => target.directories.length > 0)
+  if (expandTargets.length === 0) return results
+
+  const childTargets = new Map<string, string[]>()
+  await collectChildDirectories(expandTargets, client, childTargets)
+  const phase2 = [...childTargets]
+    .map(([repo, directories]) => ({ repo, directories: [...new Set(directories)].slice(0, 24) }))
+    .filter(target => target.directories.length > 0)
+  await probeDirectories(phase2, client, results)
+  return results
+}
+
+/**
+ * Probe `<dir>/package.json` and `<dir>/cordis.patch.yml` for every target.
+ * @param targets - repositories and the directories to probe within them.
+ * @param client - the GraphQL client.
+ * @param results - the accumulator, keyed by `owner/repo:directory`.
+ */
+async function probeDirectories(
+  targets: { repo: string, directories: string[] }[], client: GitHubClient,
+  results: Map<string, { pkg?: string, patch?: string }>,
+): Promise<void> {
   for (let index = 0; index < targets.length; index += 20) {
     const batch = targets.slice(index, index + 20)
     const parts: string[] = []
@@ -408,7 +442,46 @@ export async function fetchSubPackages(
       })
     })
   }
-  return results
+}
+
+/**
+ * List the immediate child directories of every target directory.
+ * @param targets - directories that phase one found no package in.
+ * @param client - the GraphQL client.
+ * @param results - accumulator mapping `owner/repo` to `<dir>/<child>` paths.
+ */
+async function collectChildDirectories(
+  targets: { repo: string, directories: string[] }[], client: GitHubClient,
+  results: Map<string, string[]>,
+): Promise<void> {
+  for (let index = 0; index < targets.length; index += 20) {
+    const batch = targets.slice(index, index + 20)
+    const parts: string[] = []
+    batch.forEach((target, repoIndex) => {
+      const [owner, name] = target.repo.split('/')
+      if (owner === undefined || name === undefined) return
+      const fields = target.directories.slice(0, 8).map((directory, dirIndex) => `
+        d${dirIndex}: object(expression: "HEAD:${directory}") { ... on Tree { entries { name type } } }`).join('')
+      parts.push(`r${repoIndex}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${fields} }`)
+    })
+    if (parts.length === 0) continue
+    const query = `query SubPackageTrees { rateLimit { cost remaining } ${parts.join('\n')} }`
+    const data = await client.graphql<Record<string, Record<string, { entries?: { name: string, type: string }[] } | null> | null>>(query, {})
+    batch.forEach((target, repoIndex) => {
+      const repoData = data[`r${repoIndex}`]
+      if (repoData === null || repoData === undefined) return
+      target.directories.slice(0, 8).forEach((directory, dirIndex) => {
+        const entries = repoData[`d${dirIndex}`]?.entries ?? []
+        const children = entries
+          .filter(entry => entry.type === 'tree' && !entry.name.startsWith('.') && !DIRECTORY_DENYLIST.has(entry.name))
+          .slice(0, 8)
+          .map(entry => `${directory}/${entry.name}`)
+        if (children.length === 0) return
+        const list = results.get(target.repo) ?? []
+        results.set(target.repo, [...list, ...children])
+      })
+    })
+  }
 }
 
 /**

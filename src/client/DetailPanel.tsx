@@ -2,9 +2,9 @@
  * The detail view for one catalog entry.
  *
  * The list answers "which plugin"; this answers "what is it, and do I trust
- * it". That means the author's own words get priority — the repository
- * description, its GitHub topics, and the full README — with the derived
- * signals (model summary, score, tier) presented as clearly secondary.
+ * it". That means the evidence leads — what command will run, why the market
+ * believes it is installable, what the author themselves wrote — and the
+ * author's full README anchors the bottom of the scroll.
  */
 
 import { useEffect, useState } from 'react'
@@ -13,7 +13,7 @@ import { fetchReadme } from './api.ts'
 import type { PluginHubLocaleKey } from './locales.ts'
 import { Markdown } from './Markdown.tsx'
 import css from './DetailPanel.module.css'
-import { Icon, Metric, TIER_KEYS, shortDate } from './ui.tsx'
+import { Icon, Metric, TIER_KEYS, Terminal, categoryLabel, compact, shortDate, tagLabel } from './ui.tsx'
 
 /** Translation function bound to this plugin's namespace. */
 type Translate = (key: PluginHubLocaleKey) => string
@@ -32,14 +32,23 @@ export interface DetailPanelProps {
   readonly onClose: () => void
   readonly onInstall: () => void
   readonly onUninstall: () => void
-  readonly onManual: () => void
-  /** Adds a topic to the active search, so topics work as navigation. */
-  readonly onTopic: (topic: string) => void
+}
+
+/**
+ * Why the market believes the entry can (or cannot) be installed unattended.
+ * @param entry - the catalog row.
+ * @param t - the bound translation function.
+ * @returns the evidence sentence.
+ */
+function evidence(entry: CatalogEntryView, t: Translate): string {
+  if (entry.tier === 'verified-npm') return t('evidenceNpm')
+  if (entry.tier === 'verified-git') return t('evidenceGit')
+  return t('evidenceNone')
 }
 
 /** The right-hand detail panel. */
 export function DetailPanel(props: DetailPanelProps): React.ReactElement {
-  const { entry, t, busy, installEnabled, onClose, onInstall, onUninstall, onManual, onTopic } = props
+  const { entry, t, busy, installEnabled, onClose, onInstall, onUninstall } = props
   const [readme, setReadme] = useState<ReadmeState>({ status: 'loading' })
 
   useEffect(() => {
@@ -53,96 +62,85 @@ export function DetailPanel(props: DetailPanelProps): React.ReactElement {
   }, [entry.id])
 
   const isInstalled = entry.installState !== 'not-installed'
+  const manual = entry.installMethod === 'manual'
+  const manualSteps = entry.manualSteps ?? [
+    `git clone ${entry.url}.git`,
+    `cd ${entry.repo.split('/')[1] ?? entry.repo}`,
+    'pnpm install && pnpm build',
+    'dsh plugin --profile web add $(pwd)',
+  ]
+  const installCommand = entry.installSpec === undefined ? undefined : `$ pnpm add ${entry.installSpec}`
+  const chips = [
+    ...(entry.category === undefined ? [] : [categoryLabel(t, entry.category)]),
+    ...entry.tags.map(tag => tagLabel(t, tag)),
+  ]
 
   return (
-    <aside className={css.panel} data-plugin-hub-detail={entry.id} aria-label={entry.repo}>
-      <header className={css.head}>
-        {/* The detail view replaces the list, so going back has to be the most
-            obvious thing in the header — not a bare close cross. */}
-        <div className={css.headTop}>
-          <button type="button" className={css.back} onClick={onClose}>
-            <span className={css.backChevron}><Icon name="chevron" /></span>
-            {t('backToList')}
-          </button>
-          <span className={css.tier} data-tier={entry.tier}>{t(TIER_KEYS[entry.tier])}</span>
-        </div>
-        <h3 className={css.title}>{entry.packageName ?? entry.repo}</h3>
-        <a className={css.repo} href={entry.url} target="_blank" rel="noreferrer noopener">
-          {entry.repo}
-          <Icon name="external" />
-        </a>
+    <div className={css.panel} data-plugin-hub-detail={entry.id} aria-label={entry.repo}>
+      {/* The detail view replaces the list, so going back has to be the most
+          obvious thing in the header — not a bare close cross. */}
+      <div className={css.topBar}>
+        <button type="button" className={css.back} onClick={onClose}>
+          <Icon name="back" size={13} />
+          {t('backToList')}
+        </button>
+        <span className={css.tier} data-tier={entry.tier}>{t(TIER_KEYS[entry.tier])}</span>
+      </div>
 
-        {/* The author's own one-liner comes first; the model's summary is
-            offered underneath and labelled, never blended into it. */}
+      <div className={css.body}>
+        <div className={css.identity}>
+          <h3 className={css.title}>{entry.packageName ?? entry.repo}</h3>
+          <a className={css.repo} href={entry.url} target="_blank" rel="noreferrer noopener">
+            {entry.repo}
+            <Icon name="external" size={12} />
+          </a>
+        </div>
+
         {entry.description !== '' && <p className={css.description}>{entry.description}</p>}
-        {entry.summary !== undefined && entry.summary !== entry.description && (
-          <p className={css.summary}>
+        {entry.summary !== undefined && entry.summary !== '' && entry.summary !== entry.description && (
+          <p className={css.descriptionMeta}>
             <span className={css.summaryTag}>{t('summaryLabel')}</span>
             {entry.summary}
           </p>
         )}
 
-        <div className={css.actions}>
-          {entry.installMethod === 'manual'
+        {/* The install card leads: it is the panel's one action, and burying
+            it below the metrics made the detail view read-only. */}
+        <section className={css.installCard}>
+          <h4 className={css.cardLabel}>{t('willRun')}</h4>
+          {installCommand === undefined
             ? (
-              <button type="button" className={css.buttonGhost} onClick={onManual}>
-                {t('manualOnly')}
-              </button>
+              <>
+                <p className={css.note}>{t('manualBody')}</p>
+                <Terminal
+                  command={manualSteps.map(step => `$ ${step}`).join('\n')}
+                  copyLabel={t('copy')}
+                  copiedLabel={t('copied')}
+                />
+              </>
             )
-            : isInstalled
-              ? (
-                <button
-                  type="button"
-                  className={css.buttonDanger}
-                  disabled={busy || !installEnabled}
-                  onClick={onUninstall}
-                >
-                  {busy ? t('uninstalling') : t('uninstall')}
-                </button>
-              )
-              : (
-                <button
-                  type="button"
-                  className={css.buttonPrimary}
-                  disabled={busy || !installEnabled}
-                  onClick={onInstall}
-                >
-                  {busy ? t('installing') : t('install')}
-                </button>
-              )}
-          <span className={css.score} title={t('scoreLabel')}>
-            <span className={css.scoreValue}>{entry.score}</span>
-            <span className={css.scoreUnit}>/100</span>
-          </span>
-        </div>
-      </header>
+            : (
+              <Terminal
+                command={installCommand}
+                copyLabel={t('copy')}
+                copiedLabel={t('copied')}
+              />
+            )}
+          <p className={css.evidence}>
+            <Icon name="check" size={13} />
+            {evidence(entry, t)}
+          </p>
+          {entry.runsBuildScript && <p className={css.warn}>{t('confirmBuild')}</p>}
+        </section>
 
-      <div className={css.body}>
-        {entry.topics.length > 0 && (
+        {/* The author's own instruction, when there is one, named as separate
+            from what will actually run — naming the gap is the whole point. */}
+        {entry.installHint !== undefined && entry.installHint.command !== '' && (
           <section className={css.section}>
-            <h4 className={css.sectionTitle}>{t('topicsTitle')}</h4>
-            <div className={css.chips}>
-              {entry.topics.map(topic => (
-                <button
-                  key={topic}
-                  type="button"
-                  className={css.topic}
-                  onClick={() => { onTopic(topic) }}
-                  title={t('topicSearch')}
-                >
-                  {topic}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {(entry.tags.length > 0 || entry.category !== undefined) && (
-          <section className={css.section}>
-            <h4 className={css.sectionTitle}>{t('tagsTitle')}</h4>
-            <div className={css.chips}>
-              {entry.category !== undefined && <span className={css.category}>{entry.category}</span>}
-              {entry.tags.map(tag => <span key={tag} className={css.tag}>{tag}</span>)}
+            <h4 className={css.sectionTitle}>{t('authorHint')}</h4>
+            <div className={css.hint}>
+              <code className={css.hintCommand}>{entry.installHint.command}</code>
+              <span className={css.hintBadge}>{t('notExecuted')}</span>
             </div>
           </section>
         )}
@@ -160,57 +158,24 @@ export function DetailPanel(props: DetailPanelProps): React.ReactElement {
             <Metric label={t('created')} value={shortDate(entry.createdAt)} />
             <Metric label={t('license')} value={entry.license ?? t('noLicense')} />
             <Metric label={t('language')} value={entry.language ?? '—'} />
-            {entry.npmVersion !== undefined && <Metric label={t('npmVersion')} value={entry.npmVersion} />}
-            {entry.latestReleaseTag !== undefined && (
-              <Metric label={t('latestRelease')} value={entry.latestReleaseTag} />
-            )}
+            <Metric label={t('npmVersion')} value={entry.npmVersion ?? '—'} />
+            <Metric label={t('latestRelease')} value={entry.latestReleaseTag ?? '—'} />
           </dl>
         </section>
 
-        <section className={css.section}>
-          <h4 className={css.sectionTitle}>{t('installTitle')}</h4>
-          {/* The author's own instruction, when there is one, shown before what
-              will actually run — they are often the same, and naming the gap is
-              the whole point of the hint. */}
-          {entry.installHint !== undefined && entry.installHint.command !== '' && (
-            <p className={css.hint}>
-              {t('authorSays')}
-              <code className={css.hintCommand}>{entry.installHint.command}</code>
-            </p>
-          )}
-          {entry.installSpec !== undefined
-            ? (
-              <>
-                <pre className={css.spec}>pnpm add {entry.installSpec}</pre>
-                {entry.runsBuildScript && <p className={css.warn}>{t('confirmBuild')}</p>}
-              </>
-            )
-            : (
-              <>
-                <p className={css.note}>{t('manualBody')}</p>
-                <pre className={css.spec}>
-                  {(entry.manualSteps ?? [
-                    `git clone ${entry.url}.git`,
-                    `cd ${entry.repo.split('/')[1] ?? entry.repo}`,
-                    'pnpm install && pnpm build',
-                    'dsh plugin --profile web add $(pwd)',
-                  ]).join('\n')}
-                </pre>
-              </>
-            )}
-        </section>
-
-        <section className={css.section}>
-          <h4 className={css.sectionTitle}>
-            {t('readmeTitle')}
+        <section className={css.readmeSection}>
+          <h4 className={css.readmeHead}>
+            <Icon name="file" size={14} />
+            <span className={css.readmeName}>{t('readmeTitle')}</span>
             {readme.status === 'ready' && readme.data.sourceUrl !== undefined && (
               <a
-                className={css.sectionLink}
+                className={css.readmeLink}
                 href={`${entry.url}#readme`}
                 target="_blank"
                 rel="noreferrer noopener"
               >
                 {t('viewOnGithub')}
+                <Icon name="external" size={11} />
               </a>
             )}
           </h4>
@@ -220,14 +185,50 @@ export function DetailPanel(props: DetailPanelProps): React.ReactElement {
             : (
               <p className={css.note}>
                 {t('readmeUnavailable')}
+                {' '}
                 <a className={css.inlineLink} href={entry.url} target="_blank" rel="noreferrer noopener">
                   {t('viewRepo')}
                 </a>
               </p>
             ))}
         </section>
+
+        {chips.length > 0 && (
+          <div className={css.chips}>
+            {chips.map(chip => <span key={chip} className={css.chip}>{chip}</span>)}
+          </div>
+        )}
       </div>
-    </aside>
+
+      <footer className={css.foot}>
+        <span className={css.stars}>
+          {t('stars')} <b className={css.starsValue}>{compact(entry.stars)}</b>
+        </span>
+        {manual
+          ? <span className={css.manualNote}>{t('manualOnly')}</span>
+          : isInstalled
+            ? (
+              <button
+                type="button"
+                className={css.buttonGhost}
+                disabled={busy || !installEnabled}
+                onClick={onUninstall}
+              >
+                {busy ? t('uninstalling') : t('uninstall')}
+              </button>
+            )
+            : (
+              <button
+                type="button"
+                className={css.buttonPrimary}
+                disabled={busy || !installEnabled}
+                onClick={onInstall}
+              >
+                {busy ? t('installing') : t('install')}
+              </button>
+            )}
+      </footer>
+    </div>
   )
 }
 

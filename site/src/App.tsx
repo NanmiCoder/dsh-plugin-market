@@ -1,24 +1,14 @@
-import {
-  ArrowUpRight,
-  CaretLeft,
-  Check,
-  Copy,
-  GithubLogo,
-  IconContext,
-  MagnifyingGlass,
-  Package,
-  ShieldCheck,
-  Star,
-  TerminalWindow,
-  WarningCircle,
-} from '@phosphor-icons/react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-type Language = 'en' | 'zh'
+type Lang = 'zh' | 'en'
 type Tier = 'verified-npm' | 'verified-git' | 'likely-plugin' | 'related'
-type Filter = 'all' | 'installable' | 'webui' | 'manual'
-type Sort = 'score' | 'stars' | 'updated'
-type CopyState = 'idle' | 'copied' | 'error'
+type TierFilter = Tier | 'all' | 'oneclick'
+type SortKey = 'score' | 'stars' | 'fresh'
+
+interface InstallHint {
+  readonly method?: string
+  readonly command?: string
+}
 
 interface CatalogEntry {
   readonly id: string
@@ -29,6 +19,9 @@ interface CatalogEntry {
   readonly packageName?: string
   readonly installMethod: 'npm' | 'git' | 'manual'
   readonly installSpec?: string
+  readonly runsBuildScript: boolean
+  readonly manualSteps?: readonly string[]
+  readonly installHint?: InstallHint
   readonly description: string
   readonly summary?: string
   readonly summaryEn?: string
@@ -37,571 +30,959 @@ interface CatalogEntry {
   readonly topics: readonly string[]
   readonly stars: number
   readonly forks: number
-  readonly score: number
+  readonly openIssues: number
+  readonly closedIssues: number
+  readonly openPullRequests: number
+  readonly commits: number
   readonly pushedAt: string
-  readonly language?: string
+  readonly createdAt: string
   readonly license?: string
+  readonly language?: string
+  readonly latestReleaseTag?: string
   readonly npmVersion?: string
   readonly hasClient: boolean
   readonly hasSkills: boolean
   readonly needsApiKey: boolean
+  readonly score: number
 }
 
-const entries = __PREVIEW_ENTRIES__ as readonly CatalogEntry[]
-const installCommand = 'dsh plugin --profile web add @nanmicoder/dsh-plugin-market'
+type Pair = readonly [string, string]
 
-const copy = {
-  en: {
-    navPreview: 'Live preview',
-    heroKicker: 'VERIFIED PLUGIN DISCOVERY',
-    heroTitle: 'Inspect the plugin. Then install it.',
-    heroBody: 'Search the DSH ecosystem through normalized evidence. Package identity, host compatibility, install specs, and Web UI support stay visible before anything runs.',
-    openCatalog: 'Open the catalog',
-    source: 'View source',
-    copyInstall: 'Copy install command',
-    commandCopied: 'Install command copied',
-    copyFailed: 'Clipboard unavailable. Select the command manually.',
-    verificationRoute: 'Verification route',
-    rulesOnline: 'RULESET ONLINE',
-    repositoryInput: 'repository candidates',
-    manifest: 'manifest',
-    patch: 'patch shape',
-    packageFence: 'package fence',
-    installReady: 'install-ready specs',
-    npmVerified: 'npm verified',
-    sourceVerified: 'source verified',
-    clientUi: 'client UIs detected',
-    catalogKicker: 'INTERACTIVE PRODUCT PREVIEW',
-    catalogTitle: 'The catalog is the product.',
-    catalogBody: 'Use the same search, evidence panel, and install boundary as the DSH Web UI. This public preview never executes an installation.',
-    liveCatalog: 'CATALOG ONLINE',
-    snapshot: 'Snapshot',
-    search: 'Search repo, package, topic, or capability',
-    filterLabel: 'Filter catalog',
-    sortLabel: 'Sort catalog',
-    all: 'All',
-    installable: 'Install-ready',
-    webui: 'Web UI',
-    manual: 'Manual review',
-    best: 'Best evidence',
-    starsSort: 'Most starred',
-    updated: 'Recently updated',
-    results: 'results',
-    clear: 'Reset view',
-    noResultsTitle: 'Nothing matches this search',
-    noResultsBody: 'Try a package name, a repository owner, or reset the active filters.',
-    catalogErrorTitle: 'The catalog could not be loaded',
-    catalogErrorBody: 'The preview data is missing from this build. Check the generated catalog and rebuild the site.',
-    verifiedNpm: 'Verified npm',
-    verifiedGit: 'Verified source',
-    likely: 'Manual review',
-    related: 'Ecosystem',
-    score: 'Evidence score',
-    stars: 'GitHub stars',
-    overview: 'Evidence summary',
-    topics: 'Repository topics',
-    install: 'Install boundary',
-    previewMode: 'Preview only · no host action is executed',
-    copyCommand: 'Copy command',
-    copied: 'Copied',
-    openRepo: 'Open repository',
-    back: 'Back to results',
-    package: 'Package',
-    license: 'License',
-    updatedLabel: 'Updated',
-    needsKey: 'API key',
-    skills: 'Skills',
-    client: 'Web UI',
-    noSpec: 'No executable spec is exposed. Review this repository manually.',
-    trustKicker: 'TRUST MODEL',
-    trustTitle: 'README describes intent. The catalog defines the boundary.',
-    trustBody: 'Repository prose is never executed. Only normalized specs that pass tier, manifest, patch, and character checks reach the host install action.',
-    footer: 'Open-source infrastructure for the DeepSeek Harness plugin ecosystem.',
-  },
+const CATS: Record<string, Pair> = {
+  'ui-experience': ['界面体验', 'UI & experience'],
+  'agent-orchestration': ['智能体编排', 'Agent orchestration'],
+  'media-image': ['图像与多媒体', 'Media & image'],
+  'search-knowledge': ['搜索与知识', 'Search & knowledge'],
+  'devops-infra': ['运维与基建', 'DevOps & infra'],
+  'data-analysis': ['数据分析', 'Data analysis'],
+  communication: ['通讯', 'Communication'],
+  productivity: ['效率', 'Productivity'],
+  other: ['其他', 'Other'],
+}
+
+const CAPS: Record<string, Pair> = {
+  'has-web-ui': ['含界面', 'Has web UI'],
+  skills: ['含 Skills', 'Ships skills'],
+  'needs-api-key': ['需 API Key', 'Needs API key'],
+  memory: ['记忆', 'Memory'],
+  'multi-agent': ['多智能体', 'Multi-agent'],
+  'web-search': ['联网搜索', 'Web search'],
+  'mcp-bridge': ['MCP 桥接', 'MCP bridge'],
+  'cli-companion': ['CLI 伴侣', 'CLI companion'],
+  ocr: ['OCR', 'OCR'],
+  'file-ops': ['文件操作', 'File ops'],
+}
+
+const FEAT: Record<string, Pair> = {
+  'has-web-ui': ['在 Web UI 中挂载独立面板', 'Mounts its own panel in the web UI'],
+  skills: ['附带可直接调用的 Agent Skills', 'Ships agent skills the model can call directly'],
+  'needs-api-key': ['需要配置第三方 API Key', 'Requires a third-party API key'],
+  memory: ['跨会话保留上下文与结论', 'Keeps context and conclusions across sessions'],
+  'multi-agent': ['支持子代理并行编排', 'Orchestrates subagents in parallel'],
+  subagent: ['可派发独立子代理任务', 'Dispatches standalone subagent tasks'],
+  'web-search': ['联网检索并返回带引用的结果', 'Searches the web and returns cited results'],
+  'web-scrape': ['抓取单页正文并结构化', 'Fetches and structures single-page content'],
+  'mcp-bridge': ['桥接 MCP 服务器与工具', 'Bridges MCP servers and their tools'],
+  'cli-companion': ['提供配套 CLI 命令', 'Adds companion CLI commands'],
+  ocr: ['识别图片中的文字与版面', 'Recognises text and layout inside images'],
+  'image-edit': ['在会话中预览与编辑图像', 'Previews and edits images in the conversation'],
+  'file-ops': ['读写工作区文件', 'Reads and writes workspace files'],
+  'slash-command': ['注册可直接输入的斜杠命令', 'Registers slash commands you can type'],
+  shell: ['执行受控的 shell 命令', 'Runs shell commands under guard'],
+  theme: ['替换界面主题与样式', 'Re-skins the interface'],
+  monitoring: ['采集运行指标并可视化', 'Collects and visualises runtime metrics'],
+  debug: ['提供调试视图与日志回放', 'Adds debug views and log replay'],
+  'needs-local-service': ['依赖本机后台服务', 'Depends on a local background service'],
+  'needs-browser': ['需要本地浏览器内核', 'Needs a local browser runtime'],
+  'browser-automation': ['驱动浏览器完成自动化操作', 'Drives a browser for automation'],
+  'plugin-manager': ['管理其他插件的启停与清理', 'Manages other plugins and their removal'],
+  'knowledge-graph': ['构建可检索的知识图谱', 'Builds a searchable knowledge graph'],
+  'im-bot': ['对接 IM 通道收发消息', 'Connects to IM channels to send and receive'],
+  sql: ['本地 SQL 存储与查询', 'Local SQL storage and querying'],
+  ssh: ['通过 SSH 连接远程主机', 'Reaches remote hosts over SSH'],
+  headless: ['支持无界面/无人值守运行', 'Runs headless and unattended'],
+  'prompt-engineering': ['注入可复用的提示词模板', 'Injects reusable prompt templates'],
+  experimental: ['接口仍在快速变化中', 'Interfaces are still changing fast'],
+}
+
+interface TierStyle {
+  readonly zh: string
+  readonly en: string
+  readonly bg: string
+  readonly fg: string
+  readonly bd: string
+}
+
+const TIERS: Record<Tier, TierStyle> = {
+  'verified-npm': { zh: 'npm 已验证', en: 'Verified on npm', bg: 'var(--ds-teal-100)', fg: 'var(--ds-teal)', bd: 'var(--ds-teal-300)' },
+  'verified-git': { zh: '源码已验证', en: 'Verified from source', bg: 'var(--ds-blue-100)', fg: 'var(--ds-blue-600)', bd: 'var(--ds-blue-300)' },
+  'likely-plugin': { zh: '疑似插件', en: 'Likely plugin', bg: 'var(--ds-elev)', fg: 'var(--ds-ink-800)', bd: 'var(--ds-line)' },
+  related: { zh: '生态相关', en: 'Related', bg: 'transparent', fg: 'var(--ds-ink-600)', bd: 'var(--ds-ink-400)' },
+}
+
+const T = {
   zh: {
-    navPreview: '产品预览',
-    heroKicker: '可信插件发现',
-    heroTitle: '先看清插件，再决定安装。',
-    heroBody: '用规范化证据检索 DSH 插件生态。包身份、宿主兼容性、安装 spec 和 Web UI 支持，在任何操作执行前都清楚可见。',
-    openCatalog: '打开插件目录',
-    source: '查看源码',
-    copyInstall: '复制安装命令',
-    commandCopied: '安装命令已复制',
-    copyFailed: '剪贴板不可用，请手动选择命令。',
-    verificationRoute: '验证路径',
-    rulesOnline: '规则集在线',
-    repositoryInput: '个候选仓库',
-    manifest: '清单核验',
-    patch: 'Patch 形态',
-    packageFence: '包名围栏',
-    installReady: '个可安装 spec',
-    npmVerified: 'npm 已验证',
-    sourceVerified: '源码已验证',
-    clientUi: '个 Web UI',
-    catalogKicker: '可交互产品预览',
-    catalogTitle: '目录本身，就是产品。',
-    catalogBody: '直接体验与 DSH Web UI 相同的搜索、证据面板和安装边界。公开预览站不会执行任何安装操作。',
-    liveCatalog: '目录在线',
-    snapshot: '目录快照',
-    search: '搜索仓库、包名、Topic 或能力',
-    filterLabel: '筛选插件目录',
-    sortLabel: '排序插件目录',
-    all: '全部',
-    installable: '可安装',
-    webui: '带 Web UI',
-    manual: '人工检查',
-    best: '证据最佳',
-    starsSort: 'Star 最多',
-    updated: '最近更新',
-    results: '条结果',
-    clear: '重置视图',
-    noResultsTitle: '没有匹配的插件',
-    noResultsBody: '可以尝试包名、仓库作者，或重置当前筛选条件。',
-    catalogErrorTitle: '插件目录加载失败',
-    catalogErrorBody: '当前构建没有注入预览数据，请检查生成的目录并重新构建站点。',
-    verifiedNpm: 'npm 已验证',
-    verifiedGit: '源码已验证',
-    likely: '人工检查',
-    related: '生态相关',
-    score: '证据评分',
-    stars: 'GitHub Star',
-    overview: '证据摘要',
-    topics: '仓库 Topics',
-    install: '安装边界',
-    previewMode: '仅供预览 · 不会执行宿主操作',
-    copyCommand: '复制命令',
-    copied: '已复制',
-    openRepo: '打开仓库',
-    back: '返回结果',
-    package: '包名',
-    license: '许可证',
-    updatedLabel: '更新于',
-    needsKey: '需要 API Key',
-    skills: 'Skills',
-    client: 'Web UI',
-    noSpec: '该条目没有暴露可执行 spec，请先人工检查仓库。',
-    trustKicker: '信任模型',
-    trustTitle: 'README 描述意图，目录定义边界。',
-    trustBody: '仓库文案不会被执行。只有同时通过层级、清单、Patch 与字符围栏检查的规范化 spec，才能进入宿主安装操作。',
-    footer: '面向 DeepSeek Harness 插件生态的开源基础设施。',
+    brand: '插件市场', searchPh: '搜索仓库、包名、分类或标签…', getMarket: '安装本市场', clear: '清空筛选', installed: '已安装',
+    manualOnly: '手动安装', emptyTitle: '没有匹配的插件',
+    emptyBody: '试试放宽筛选条件，或者只搜索仓库名的一部分——目录里还有 {total} 个条目等着被翻出来。',
+    aiSummary: 'AI 摘要', willRun: '将执行的命令', authorHint: '作者 README 里写的', notExecuted: '不会执行', metrics: '仓库指标',
+    catTags: '分类与标签', topics: '仓库话题', install: '安装', copied: '已复制', copyFailed: '剪贴板不可用，请手动复制。',
+    backList: '返回目录', readmeMeta: '由市场抓取并缓存', sortScore: '按评分', sortStars: '按 Star', sortFresh: '按更新',
+    fTier: '安装能力', fCap: '能力标签', fCat: '分类', all: '全部', oneClick: '可一键安装', results: '个结果',
+    errorTitle: '插件目录加载失败', errorBody: '目录数据获取失败，请检查网络连接后刷新重试。',
+    loading: '目录加载中',
+  },
+  en: {
+    brand: 'Plugin Market', searchPh: 'Search repos, packages, categories or tags…', getMarket: 'Install this market', clear: 'Clear filters', installed: 'Installed',
+    manualOnly: 'Manual only', emptyTitle: 'Nothing matches yet',
+    emptyBody: 'Loosen a filter, or search just part of a repository name — there are {total} entries in the catalog waiting to be dug out.',
+    aiSummary: 'AI summary', willRun: 'Command that will run', authorHint: 'What the author wrote in the README', notExecuted: 'never executed', metrics: 'Repository metrics',
+    catTags: 'Category & tags', topics: 'Repository topics', install: 'Install', copied: 'Copied', copyFailed: 'Clipboard unavailable — copy it manually.',
+    backList: 'Back to catalog', readmeMeta: 'fetched and cached by the market', sortScore: 'By score', sortStars: 'By stars', sortFresh: 'By updated',
+    fTier: 'Install path', fCap: 'Capability', fCat: 'Category', all: 'All', oneClick: 'One-click', results: 'results',
+    errorTitle: 'The catalog failed to load', errorBody: 'The catalog could not be fetched. Check your connection and reload the page.',
+    loading: 'Loading catalog',
   },
 } as const
 
-function tierLabel(tier: Tier, language: Language): string {
-  const t = copy[language]
-  if (tier === 'verified-npm') return t.verifiedNpm
-  if (tier === 'verified-git') return t.verifiedGit
-  if (tier === 'likely-plugin') return t.likely
-  return t.related
+const stats = __CATALOG_STATS__
+const repoUrl = 'https://github.com/NanmiCoder/dsh-plugin-market'
+const marketCommand = 'dsh plugin --profile web add @nanmicoder/dsh-plugin-market'
+const INSTALLED_KEY = 'dsh-market-installed'
+/** Cards per page; the next page loads when the sentinel scrolls into view. */
+const PAGE_SIZE = 60
+
+function pair(pairValue: Pair | undefined, lang: Lang, fallback: string): string {
+  if (pairValue === undefined) return fallback
+  return lang === 'en' ? pairValue[1] : pairValue[0]
 }
 
-function compact(value: number): string {
-  return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+function entryName(entry: CatalogEntry): string {
+  return entry.repo.split('/')[1] ?? entry.repo
 }
 
-function relativeDate(value: string, language: Language): string {
-  const days = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 86_400_000))
-  if (language === 'zh') {
-    if (days === 0) return '今天'
-    if (days < 30) return `${days} 天前`
-    if (days < 365) return `${Math.floor(days / 30)} 个月前`
-    return `${Math.floor(days / 365)} 年前`
+function monoLetter(entry: CatalogEntry): string {
+  const name = entryName(entry)
+  const stripped = name.replace(/^dsh[-_]?/i, '')
+  return (stripped.charAt(0) || name.charAt(0) || '?').toUpperCase()
+}
+
+function canInstall(entry: CatalogEntry): boolean {
+  return (entry.tier === 'verified-npm' || entry.tier === 'verified-git') && entry.installSpec !== undefined && entry.installSpec.length > 0
+}
+
+function installCommand(entry: CatalogEntry): string | undefined {
+  if (!canInstall(entry)) return undefined
+  return `dsh plugin --profile web add ${entry.installSpec ?? ''}`
+}
+
+function fmtCompact(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value)
+}
+
+function fmtThousands(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function relDate(iso: string, lang: Lang): string {
+  const days = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86_400_000))
+  if (lang === 'zh') return days === 0 ? '今天' : `${days} 天前`
+  return days === 0 ? 'today' : `${days}d ago`
+}
+
+function summaryOf(entry: CatalogEntry, lang: Lang): string {
+  if (lang === 'en') return entry.summaryEn ?? entry.summary ?? entry.description
+  return entry.summary ?? entry.description
+}
+
+function matches(entry: CatalogEntry, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (q.length === 0) return true
+  const hay = [
+    entry.id, entry.repo, entry.packageName ?? '', entry.description,
+    entry.summary ?? '', entry.summaryEn ?? '', entry.category ?? '',
+    entry.tags.join(' '), entry.topics.join(' '),
+  ].join(' ').toLowerCase()
+  return hay.includes(q)
+}
+
+function loadInstalled(): Record<string, true> {
+  try {
+    const raw = window.localStorage.getItem(INSTALLED_KEY)
+    if (raw === null) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return {}
+    const map: Record<string, true> = {}
+    for (const id of parsed) if (typeof id === 'string') map[id] = true
+    return map
+  } catch {
+    return {}
   }
-  if (days === 0) return 'today'
-  if (days < 30) return `${days}d ago`
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`
-  return `${Math.floor(days / 365)}y ago`
 }
 
-function useClipboard(): readonly [CopyState, (value: string) => Promise<void>, () => void] {
-  const [state, setState] = useState<CopyState>('idle')
-  const timer = useRef<number | undefined>(undefined)
-
-  useEffect(() => () => { window.clearTimeout(timer.current) }, [])
-
-  const reset = (): void => {
-    window.clearTimeout(timer.current)
-    setState('idle')
+function saveInstalled(map: Record<string, true>): void {
+  try {
+    window.localStorage.setItem(INSTALLED_KEY, JSON.stringify(Object.keys(map)))
+  } catch {
+    // storage unavailable — installed pills just won't persist
   }
-
-  const write = async (value: string): Promise<void> => {
-    window.clearTimeout(timer.current)
-    try {
-      await navigator.clipboard.writeText(value)
-      setState('copied')
-    } catch {
-      setState('error')
-    }
-    timer.current = window.setTimeout(() => { setState('idle') }, 2400)
-  }
-
-  return [state, write, reset]
 }
 
-function Brand({ compact: small = false }: { readonly compact?: boolean }): React.ReactElement {
+// — inline icons (Lucide paths, 24 viewBox) —
+
+interface IconProps {
+  readonly size?: number
+  readonly className?: string
+  readonly strokeWidth?: number
+}
+
+function IconBase({ size = 16, className, strokeWidth = 2.75, children }: IconProps & { readonly children: React.ReactNode }): React.ReactElement {
   return (
-    <span className="brand-lockup">
-      <span className="brand-mark" data-compact={small ? '' : undefined} aria-hidden="true"><span /></span>
-      <span className="brand-name">DSH <strong>MARKET</strong></span>
-    </span>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      {children}
+    </svg>
   )
 }
 
-function AppHeader({ language, setLanguage }: {
-  readonly language: Language
-  readonly setLanguage: (language: Language) => void
-}): React.ReactElement {
-  const t = copy[language]
+function ShieldIcon(props: IconProps): React.ReactElement {
+  return <IconBase {...props}><path d="M12 2 4 6v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V6z" /><path d="m9 12 2 2 4-4" /></IconBase>
+}
+
+function SearchIcon(props: IconProps): React.ReactElement {
+  return <IconBase {...props}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></IconBase>
+}
+
+function ExternalIcon(props: IconProps): React.ReactElement {
+  return <IconBase {...props}><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></IconBase>
+}
+
+function XIcon(props: IconProps): React.ReactElement {
+  return <IconBase strokeWidth={3} {...props}><path d="M18 6 6 18M6 6l12 12" /></IconBase>
+}
+
+function BackIcon(props: IconProps): React.ReactElement {
+  return <IconBase strokeWidth={3} {...props}><path d="m15 18-6-6 6-6" /></IconBase>
+}
+
+function StarIcon(props: IconProps): React.ReactElement {
   return (
-    <header className="site-header">
-      <a href="#top" aria-label="DSH Plugin Market home"><Brand /></a>
-      <nav aria-label="Primary navigation">
-        <a href="#market">{t.navPreview}</a>
-        <a href="https://github.com/NanmiCoder/dsh-plugin-market" target="_blank" rel="noreferrer">
-          GitHub <ArrowUpRight />
-        </a>
-        <div className="language-switch" role="group" aria-label="Language">
-          <button type="button" aria-pressed={language === 'en'} data-active={language === 'en' ? '' : undefined} onClick={() => { setLanguage('en') }}>EN</button>
-          <button type="button" aria-pressed={language === 'zh'} data-active={language === 'zh' ? '' : undefined} onClick={() => { setLanguage('zh') }}>中</button>
-        </div>
-      </nav>
-    </header>
+    <svg width={props.size ?? 13} height={props.size ?? 13} viewBox="0 0 24 24" fill="var(--ds-blue-200)" stroke="var(--ds-blue)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={props.className} aria-hidden="true">
+      <path d="m12 3 2.7 5.7 6.3.9-4.5 4.4 1 6.2-5.5-2.9-5.5 2.9 1-6.2L3 9.6l6.3-.9z" />
+    </svg>
   )
 }
 
-function Hero({ language }: { readonly language: Language }): React.ReactElement {
-  const t = copy[language]
-  const [copyState, writeCommand] = useClipboard()
-  return (
-    <section className="hero" id="top">
-      <div className="hero-grid">
-        <div className="hero-copy">
-          <p className="section-kicker"><ShieldCheck />{t.heroKicker}</p>
-          <h1>{t.heroTitle}</h1>
-          <p className="hero-body">{t.heroBody}</p>
-          <div className="hero-actions">
-            <a className="button button-primary" href="#market">{t.openCatalog}<ArrowUpRight /></a>
-            <a className="button button-secondary" href="https://github.com/NanmiCoder/dsh-plugin-market" target="_blank" rel="noreferrer"><GithubLogo />{t.source}</a>
-          </div>
-          <button className="install-command" type="button" onClick={() => { void writeCommand(installCommand) }} aria-label={t.copyInstall}>
-            <TerminalWindow />
-            <code>{installCommand}</code>
-            <span>{copyState === 'copied' ? <Check /> : <Copy />}</span>
-          </button>
-          <p className="command-feedback" data-error={copyState === 'error' ? '' : undefined} aria-live="polite">
-            {copyState === 'copied' ? t.commandCopied : copyState === 'error' ? t.copyFailed : '\u00a0'}
-          </p>
-        </div>
-
-        <div className="verification-board" aria-label={t.verificationRoute}>
-          <div className="board-header">
-            <span>{t.verificationRoute}</span>
-            <span className="online-status"><i />{t.rulesOnline}</span>
-          </div>
-          <div className="route-diagram">
-            <div className="route-node route-input">
-              <span className="route-index">INPUT / 01</span>
-              <strong>{compact(__CATALOG_STATS__.total)}</strong>
-              <span>{t.repositoryInput}</span>
-            </div>
-            <div className="route-track" aria-label="Verification checks">
-              {[t.manifest, t.patch, t.packageFence].map((label, index) => (
-                <span key={label} style={{ '--route-index': index } as React.CSSProperties}><Check />{label}</span>
-              ))}
-            </div>
-            <div className="route-node route-output">
-              <span className="route-index">OUTPUT / 02</span>
-              <strong>{compact(__CATALOG_STATS__.oneClick)}</strong>
-              <span>{t.installReady}</span>
-            </div>
-          </div>
-          <dl className="route-stats">
-            <div><dt>{t.npmVerified}</dt><dd>{__CATALOG_STATS__.npm}</dd></div>
-            <div><dt>{t.sourceVerified}</dt><dd>{__CATALOG_STATS__.git}</dd></div>
-            <div><dt>{t.clientUi}</dt><dd>{compact(__CATALOG_STATS__.webUi)}</dd></div>
-          </dl>
-        </div>
-      </div>
-    </section>
-  )
+function FileIcon(props: IconProps): React.ReactElement {
+  return <IconBase strokeWidth={2.5} {...props}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /><path d="M9 13h6M9 17h4" /></IconBase>
 }
 
-function CatalogSkeleton(): React.ReactElement {
+function CheckIcon(props: IconProps): React.ReactElement {
+  return <IconBase strokeWidth={3} {...props}><path d="M20 6 9 17l-5-5" /></IconBase>
+}
+
+function InfoIcon(props: IconProps): React.ReactElement {
+  return <IconBase {...props}><circle cx="12" cy="12" r="9" /><path d="M12 8h.01M11 12h1v4h1" /></IconBase>
+}
+
+// — background layer —
+
+function Background(): React.ReactElement {
   return (
-    <div className="catalog-list" aria-busy="true" aria-label="Loading catalog">
-      {Array.from({ length: 6 }, (_, index) => (
-        <div className="catalog-row skeleton-row" key={index}>
-          <span className="skeleton-dot" />
-          <span className="skeleton-copy"><i /><b /><i /></span>
-          <span className="skeleton-score" />
-        </div>
-      ))}
+    <div className="bg-layer" aria-hidden="true">
+      <div className="bg-halo bg-halo-a" />
+      <div className="bg-halo bg-halo-b" />
     </div>
   )
 }
 
-function CatalogList({ language, filtered, selectedId, onSelect, onClear }: {
-  readonly language: Language
-  readonly filtered: readonly CatalogEntry[]
-  readonly selectedId: string | undefined
-  readonly onSelect: (id: string) => void
-  readonly onClear: () => void
+// — header —
+
+function Header({ lang, setLang }: {
+  readonly lang: Lang
+  readonly setLang: (lang: Lang) => void
 }): React.ReactElement {
-  const t = copy[language]
-  if (filtered.length === 0) {
-    return (
-      <div className="empty-state">
-        <WarningCircle />
-        <strong>{t.noResultsTitle}</strong>
-        <p>{t.noResultsBody}</p>
-        <button type="button" className="text-button" onClick={onClear}>{t.clear}<ArrowUpRight /></button>
-      </div>
-    )
-  }
+  const t = T[lang]
   return (
-    <div className="catalog-list" aria-label="Plugin catalog">
-      {filtered.map((entry, index) => (
-        <button
-          key={entry.id}
-          type="button"
-          aria-pressed={entry.id === selectedId}
-          className="catalog-row"
-          data-active={entry.id === selectedId ? '' : undefined}
-          style={{ '--row-index': Math.min(index, 8) } as React.CSSProperties}
-          onClick={() => { onSelect(entry.id) }}
-        >
-          <span className="tier-dot" data-tier={entry.tier} />
-          <span className="row-main">
-            <span className="row-kicker"><b>{tierLabel(entry.tier, language)}</b><span>{entry.category ?? 'other'}</span></span>
-            <strong>{entry.repo}</strong>
-            <span className="row-summary">{language === 'zh' ? (entry.summary ?? entry.description) : (entry.summaryEn ?? entry.summary ?? entry.description)}</span>
-          </span>
-          <span className="row-stats">
-            <span><Star />{compact(entry.stars)}</span>
-            <span className="score-chip">{entry.score}</span>
-          </span>
+    <header className="site-header">
+      <div className="brand">
+        <span className="brand-logo"><ShieldIcon size={18} /></span>
+        <span className="brand-name">{t.brand}</span>
+      </div>
+      <div className="header-side">
+        <div className="seg" role="group" aria-label="Language">
+          <button type="button" className="seg-btn" data-on={lang === 'zh' ? '' : undefined} aria-pressed={lang === 'zh'} onClick={() => { setLang('zh') }}>中文</button>
+          <button type="button" className="seg-btn" data-on={lang === 'en' ? '' : undefined} aria-pressed={lang === 'en'} onClick={() => { setLang('en') }}>EN</button>
+        </div>
+        <a className="gh-link" href={repoUrl} target="_blank" rel="noreferrer">
+          <ExternalIcon size={15} />
+          GitHub
+        </a>
+      </div>
+    </header>
+  )
+}
+
+// — search —
+
+function SearchPill({ lang, query, setQuery }: {
+  readonly lang: Lang
+  readonly query: string
+  readonly setQuery: (query: string) => void
+}): React.ReactElement {
+  const t = T[lang]
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        searchRef.current?.focus()
+        searchRef.current?.select()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey) }
+  }, [])
+
+  return (
+    <label className="search-pill">
+      <SearchIcon size={17} className="search-icon" />
+      <input
+        ref={searchRef}
+        value={query}
+        onChange={event => { setQuery(event.target.value) }}
+        placeholder={t.searchPh}
+        type="search"
+        aria-label={t.searchPh}
+      />
+      <kbd className="kbd">⌘K</kbd>
+    </label>
+  )
+}
+
+// — filter rail —
+
+interface FacetOption {
+  readonly key: string
+  readonly label: string
+  readonly count: number
+  readonly active: boolean
+  readonly pick: () => void
+}
+
+function FacetGroup({ label, options }: { readonly label: string, readonly options: readonly FacetOption[] }): React.ReactElement {
+  return (
+    <div className="facet">
+      <div className="facet-label">{label}</div>
+      {options.map(option => (
+        <button key={option.key} type="button" className="pill" data-on={option.active ? '' : undefined} aria-pressed={option.active} onClick={option.pick}>
+          <span className="pill-label">{option.label}</span>
+          <span className="pill-count">{option.count}</span>
         </button>
       ))}
     </div>
   )
 }
 
-function DetailSkeleton(): React.ReactElement {
-  return (
-    <aside className="detail-panel detail-skeleton" aria-busy="true">
-      <span className="skeleton-line skeleton-label" />
-      <span className="skeleton-line skeleton-title" />
-      <span className="skeleton-line" />
-      <span className="skeleton-line skeleton-short" />
-      <div className="skeleton-grid"><span /><span /><span /><span /></div>
-      <span className="skeleton-line" />
-      <span className="skeleton-line skeleton-short" />
-    </aside>
-  )
-}
+// — install / copy button —
 
-function Detail({ entry, language, mobileOpen, onBack }: {
-  readonly entry: CatalogEntry | undefined
-  readonly language: Language
-  readonly mobileOpen: boolean
-  readonly onBack: () => void
+function InstallButton({ entry, lang, big, installed, onCopied, onManual }: {
+  readonly entry: CatalogEntry
+  readonly lang: Lang
+  readonly big?: boolean
+  readonly installed: boolean
+  readonly onCopied: (id: string) => void
+  readonly onManual: () => void
 }): React.ReactElement {
-  const t = copy[language]
-  const [copyState, writeCommand, resetCopy] = useClipboard()
-  useEffect(() => { resetCopy() }, [entry?.id])
+  const t = T[lang]
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
 
-  if (entry === undefined) return <aside className="detail-panel" />
-  const command = entry.installSpec === undefined ? undefined : `dsh plugin --profile web add ${entry.installSpec}`
+  useEffect(() => () => { window.clearTimeout(timer.current) }, [])
+
+  const command = installCommand(entry)
+
+  if (command === undefined) {
+    return (
+      <button type="button" className={big === true ? 'btn-ghost btn-big' : 'btn-ghost'} onClick={(event) => { event.stopPropagation(); onManual() }}>
+        {t.manualOnly}
+      </button>
+    )
+  }
+
+  const copy = async (event: React.MouseEvent): Promise<void> => {
+    event.stopPropagation()
+    window.clearTimeout(timer.current)
+    try {
+      await navigator.clipboard.writeText(command)
+    } catch {
+      // clipboard unavailable (non-secure context) — fall back to a hidden textarea
+      const area = document.createElement('textarea')
+      area.value = command
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      document.execCommand('copy')
+      area.remove()
+    }
+    setCopied(true)
+    onCopied(entry.id)
+    timer.current = window.setTimeout(() => { setCopied(false) }, 2000)
+  }
 
   return (
-    <aside className="detail-panel" data-mobile-open={mobileOpen ? '' : undefined} aria-label={`${entry.repo} details`}>
-      <button className="mobile-back" type="button" onClick={onBack}><CaretLeft />{t.back}</button>
-      <div className="detail-scroll" key={entry.id}>
-        <div className="detail-heading">
-          <span className="tier-label" data-tier={entry.tier}><i />{tierLabel(entry.tier, language)}</span>
-          <h3>{entry.repo}</h3>
-          <p>{language === 'zh' ? (entry.summary ?? entry.description) : (entry.summaryEn ?? entry.summary ?? entry.description)}</p>
-        </div>
-
-        <div className="feature-flags" aria-label="Plugin capabilities">
-          {entry.hasClient && <span>{t.client}</span>}
-          {entry.hasSkills && <span>{t.skills}</span>}
-          {entry.needsApiKey && <span>{t.needsKey}</span>}
-        </div>
-
-        <dl className="evidence-grid">
-          <div><dt>{t.score}</dt><dd>{entry.score}<i>/100</i></dd></div>
-          <div><dt>{t.stars}</dt><dd>{compact(entry.stars)}</dd></div>
-          <div><dt>{t.package}</dt><dd>{entry.packageName ?? '—'}</dd></div>
-          <div><dt>{t.updatedLabel}</dt><dd>{relativeDate(entry.pushedAt, language)}</dd></div>
-        </dl>
-
-        <section className="detail-section">
-          <div className="section-label"><span>01</span>{t.overview}</div>
-          <p>{entry.description}</p>
-        </section>
-
-        <section className="detail-section">
-          <div className="section-label"><span>02</span>{t.topics}</div>
-          <div className="topic-list">
-            {(entry.topics.length > 0 ? entry.topics : entry.tags).slice(0, 8).map(topic => <span key={topic}>{topic}</span>)}
-          </div>
-        </section>
-
-        <section className="detail-section">
-          <div className="section-label"><span>03</span>{t.install}</div>
-          {command === undefined ? (
-            <p className="manual-note"><WarningCircle />{t.noSpec}</p>
-          ) : (
-            <div className="command-box"><TerminalWindow /><code>{command}</code></div>
-          )}
-          <div className="detail-actions">
-            <button className="button button-primary" type="button" disabled={command === undefined} onClick={() => { if (command !== undefined) void writeCommand(command) }}>
-              {copyState === 'copied' ? <Check /> : <Copy />}{copyState === 'copied' ? t.copied : t.copyCommand}
-            </button>
-            <a className="button button-secondary" href={entry.url} target="_blank" rel="noreferrer">{t.openRepo}<ArrowUpRight /></a>
-          </div>
-          <span className="preview-note"><i />{t.previewMode}</span>
-          {copyState === 'error' && <p className="inline-error" role="alert">{t.copyFailed}</p>}
-        </section>
-      </div>
-    </aside>
+    <button
+      type="button"
+      className={big === true ? 'btn-primary btn-big' : 'btn-primary'}
+      data-copied={copied ? '' : undefined}
+      data-installed={!copied && installed ? '' : undefined}
+      onClick={(event) => { void copy(event) }}
+    >
+      {copied && <CheckIcon size={13} />}
+      {copied ? t.copied : t.install}
+    </button>
   )
 }
 
-function MarketPreview({ language }: { readonly language: Language }): React.ReactElement {
-  const t = copy[language]
-  const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<Filter>('installable')
-  const [sort, setSort] = useState<Sort>('score')
-  const [selectedId, setSelectedId] = useState<string | undefined>(entries[0]?.id)
-  const [mobileOpen, setMobileOpen] = useState(false)
-  const [loading, setLoading] = useState(true)
+// — plugin card —
+
+function PluginCard({ entry, lang, installed, onOpen, onCopied }: {
+  readonly entry: CatalogEntry
+  readonly lang: Lang
+  readonly installed: boolean
+  readonly onOpen: () => void
+  readonly onCopied: (id: string) => void
+}): React.ReactElement {
+  const t = T[lang]
+  const tier = TIERS[entry.tier]
+  const name = entryName(entry)
+  const chips = [pair(CATS[entry.category ?? 'other'] ?? CATS.other, lang, entry.category ?? 'other')]
+    .concat(entry.tags.slice(0, 3).map(tag => pair(CAPS[tag], lang, tag)))
+
+  return (
+    <article className="card" tabIndex={0} role="button" onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter') onOpen() }}>
+      <div className="card-head">
+        <div className="mono" style={{ background: tier.bg === 'transparent' ? 'var(--ds-elev)' : tier.bg, color: tier.fg, borderColor: tier.bd }}>{monoLetter(entry)}</div>
+        <div className="card-titles">
+          <div className="card-name">{name}</div>
+          <div className="card-sub">{entry.packageName ?? entry.id}</div>
+        </div>
+        <div className="star-block">
+          <div className="star-num"><StarIcon size={14} />{fmtCompact(entry.stars)}</div>
+          <div className="star-label">stars</div>
+        </div>
+      </div>
+
+      <div className="badge-row">
+        <span className="tier-pill" style={{ background: tier.bg, color: tier.fg, borderColor: tier.bd }}>
+          <span className="tier-dot" style={{ background: tier.fg }} />{lang === 'en' ? tier.en : tier.zh}
+        </span>
+        {installed && <span className="installed-pill">{t.installed}</span>}
+      </div>
+
+      <div className="card-summary">{summaryOf(entry, lang)}</div>
+
+      <div className="chip-row">
+        {chips.map(chip => <span key={chip} className="chip">{chip}</span>)}
+      </div>
+
+      <div className="card-foot">
+        <span className="foot-item">{entry.license ?? '—'}</span>
+        <span className="foot-item">{relDate(entry.pushedAt, lang)}</span>
+        <span className="foot-action">
+          <InstallButton entry={entry} lang={lang} installed={installed} onCopied={onCopied} onManual={onOpen} />
+        </span>
+      </div>
+    </article>
+  )
+}
+
+// — synthesized README blocks —
+
+type Block =
+  | { readonly kind: 'h2' | 'p' | 'li' | 'code' | 'note', readonly text: string }
+
+function readmeBlocks(entry: CatalogEntry, lang: Lang): Block[] {
+  const zh = lang !== 'en'
+  const blocks: Block[] = []
+  const name = entryName(entry)
+  const installable = canInstall(entry)
+
+  blocks.push({ kind: 'p', text: entry.description })
+
+  blocks.push({ kind: 'h2', text: zh ? '功能特性' : 'Features' })
+  const feats = entry.tags.filter(tag => FEAT[tag] !== undefined).slice(0, 5)
+  const featTags = feats.length > 0 ? feats : ['file-ops']
+  for (const tag of featTags) {
+    const feat = FEAT[tag]
+    if (feat !== undefined) blocks.push({ kind: 'li', text: zh ? feat[0] : feat[1] })
+  }
+
+  blocks.push({ kind: 'h2', text: zh ? '安装' : 'Installation' })
+  if (entry.tier === 'verified-npm') {
+    const pkg = entry.packageName ?? entry.installSpec ?? entry.repo
+    const version = entry.npmVersion !== undefined && entry.npmVersion.length > 0 ? `@${entry.npmVersion}` : ''
+    blocks.push({
+      kind: 'code',
+      text: `# ${zh ? '在 Web 配置里安装' : 'install into the web profile'}\n$ dsh plugin --profile web add ${pkg}\n\n# ${zh ? '或手动加入依赖' : 'or add it manually'}\n$ pnpm add ${pkg}${version}`,
+    })
+  } else if (entry.tier === 'verified-git') {
+    blocks.push({
+      kind: 'code',
+      text: `$ pnpm add ${entry.installSpec ?? entry.url}\n# ${zh ? '安装时会执行仓库的构建脚本' : 'the repository build script runs on install'}`,
+    })
+  } else {
+    blocks.push({ kind: 'code', text: `$ git clone https://github.com/${entry.repo}\n$ cd ${name} && pnpm i && pnpm build` })
+    blocks.push({
+      kind: 'note',
+      text: zh
+        ? '该条目没有可验证的无人值守安装路径，市场不提供一键安装按钮，请按上面的步骤手动构建。'
+        : 'This entry has no provable unattended install path, so the market offers no one-click button — build it manually with the steps above.',
+    })
+  }
+
+  blocks.push({ kind: 'h2', text: zh ? '使用' : 'Usage' })
+  if (entry.tags.includes('slash-command')) {
+    blocks.push({ kind: 'code', text: `/${name.replace(/^dsh[-_]?/, '')} ${zh ? '<你的指令>' : '<your instruction>'}` })
+    blocks.push({
+      kind: 'p',
+      text: zh
+        ? '安装后在对话框直接输入斜杠命令；也可以让模型在需要时自行调用对应工具。'
+        : 'Type the slash command in the composer after installing, or let the model call the matching tool when it needs to.',
+    })
+  } else if (entry.hasClient || entry.tags.includes('has-web-ui')) {
+    blocks.push({
+      kind: 'p',
+      text: zh
+        ? '安装并刷新页面后，插件会在 Web UI 中出现自己的入口，无需额外配置即可使用。'
+        : 'After installing and reloading the page, the plugin adds its own entry point to the web UI — no extra configuration needed.',
+    })
+  } else {
+    blocks.push({
+      kind: 'p',
+      text: zh
+        ? '安装后插件会自动注册到宿主，模型在需要时会调用它暴露的工具。'
+        : 'Once installed the plugin registers with the host, and the model calls the tools it exposes when relevant.',
+    })
+  }
+
+  if (entry.needsApiKey) {
+    blocks.push({ kind: 'h2', text: zh ? '配置' : 'Configuration' })
+    const envName = name.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
+    blocks.push({ kind: 'code', text: `${envName}_API_KEY=sk-...\n${envName}_BASE_URL=https://api.example.com/v1` })
+    blocks.push({
+      kind: 'p',
+      text: zh
+        ? '把上面的变量写进宿主的环境变量或插件设置面板；Key 只保存在本机。'
+        : 'Put these in the host environment or the plugin settings panel — the key stays on your machine.',
+    })
+  }
+
+  blocks.push({ kind: 'h2', text: zh ? '许可与来源' : 'License & provenance' })
+  blocks.push({ kind: 'li', text: `${zh ? '许可证：' : 'License: '}${entry.license ?? '—'} · ${zh ? '主要语言：' : 'Language: '}${entry.language ?? '—'}` })
+  blocks.push({ kind: 'li', text: `${zh ? '最近更新：' : 'Last updated: '}${relDate(entry.pushedAt, lang)} · ${entry.commits}${zh ? ' 次提交' : ' commits'}` })
+  if (installable && entry.npmVersion !== undefined && entry.npmVersion.length > 0) {
+    blocks.push({ kind: 'li', text: `${zh ? 'npm 最新版本：' : 'Latest npm version: '}${entry.npmVersion}` })
+  }
+  return blocks
+}
+
+// — detail view —
+
+function DetailView({ entry, lang, installed, onBack, onCopied }: {
+  readonly entry: CatalogEntry
+  readonly lang: Lang
+  readonly installed: boolean
+  readonly onBack: () => void
+  readonly onCopied: (id: string) => void
+}): React.ReactElement {
+  const t = T[lang]
+  const zh = lang !== 'en'
+  const tier = TIERS[entry.tier]
+  const name = entryName(entry)
+  const installable = canInstall(entry)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { setLoading(false) }, 360)
-    return () => { window.clearTimeout(timer) }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onBack()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey) }
+  }, [onBack])
+
+  const evidence = entry.tier === 'verified-npm'
+    ? (zh ? 'npm 清单声明了 dsh.bundle' : 'npm manifest declares dsh.bundle')
+    : entry.tier === 'verified-git'
+      ? (zh ? '仓库声明 dsh.bundle 且 cordis.patch.yml 有效（安装时会构建）' : 'Repo declares dsh.bundle + valid cordis.patch.yml (build runs on install)')
+      : (zh ? '无法证明可无人值守安装' : 'No provable unattended install path')
+
+  const spec = installable
+    ? (entry.installSpec ?? '')
+    : (zh ? '— 市场不提供一键安装' : '— not installable from the marketplace')
+
+  const reloadNote = entry.hasClient
+    ? (zh ? '含 Web 界面，安装后刷新页面即可生效。' : 'Ships a web UI — reload the page after installing.')
+    : (zh ? '仅宿主端插件，安装后立即热挂载。' : 'Host-only plugin — hot-mounts immediately.')
+
+  const metrics: ReadonlyArray<{ readonly k: string, readonly v: string }> = [
+    { k: 'Star', v: fmtCompact(entry.stars) },
+    { k: 'Fork', v: String(entry.forks) },
+    { k: zh ? '提交' : 'Commits', v: String(entry.commits) },
+    { k: zh ? '开放 Issue' : 'Open issues', v: String(entry.openIssues) },
+    { k: zh ? '已关闭' : 'Closed', v: String(entry.closedIssues) },
+    { k: zh ? '开放 PR' : 'Open PR', v: String(entry.openPullRequests) },
+    { k: zh ? '许可证' : 'License', v: entry.license ?? '—' },
+    { k: zh ? '主要语言' : 'Language', v: entry.language ?? '—' },
+    { k: zh ? 'npm 版本' : 'npm version', v: entry.npmVersion ?? '—' },
+    { k: zh ? '创建于' : 'Created', v: entry.createdAt.slice(0, 10) },
+    { k: zh ? '更新于' : 'Updated', v: relDate(entry.pushedAt, lang) },
+  ]
+
+  const chips = [pair(CATS[entry.category ?? 'other'] ?? CATS.other, lang, entry.category ?? 'other')]
+    .concat(entry.tags.map(tag => pair(CAPS[tag], lang, tag)))
+
+  const blocks = readmeBlocks(entry, lang)
+
+  return (
+    <div className="detail">
+      <button type="button" className="back-btn" onClick={onBack}>
+        <BackIcon size={13} />{t.backList}
+      </button>
+
+      <header className="detail-head">
+        <div className="mono mono-big" style={{ background: tier.bg === 'transparent' ? 'var(--ds-elev)' : tier.bg, color: tier.fg, borderColor: tier.bd }}>{monoLetter(entry)}</div>
+        <div className="detail-titles">
+          <div className="detail-name-row">
+            <span className="detail-name">{name}</span>
+            <span className="tier-pill" style={{ background: tier.bg, color: tier.fg, borderColor: tier.bd }}>
+              <span className="tier-dot" style={{ background: tier.fg }} />{lang === 'en' ? tier.en : tier.zh}
+            </span>
+            {installed && <span className="installed-pill">{t.installed}</span>}
+          </div>
+          <a className="repo-link" href={entry.url} target="_blank" rel="noreferrer">
+            {entry.repo}
+            <ExternalIcon size={12} />
+          </a>
+          <div className="ai-summary">
+            <span className="ai-label">{t.aiSummary}</span>
+            <span className="ai-text">{summaryOf(entry, lang)}</span>
+          </div>
+        </div>
+        <div className="detail-side">
+          <div className="star-block">
+            <div className="star-num star-big"><StarIcon size={18} />{fmtCompact(entry.stars)}</div>
+            <div className="star-label">stars</div>
+          </div>
+          <InstallButton entry={entry} lang={lang} big installed={installed} onCopied={onCopied} onManual={() => undefined} />
+        </div>
+      </header>
+
+      <div className="detail-body">
+        <main className="readme-panel">
+          <div className="readme-bar">
+            <FileIcon size={15} className="readme-file-icon" />
+            <span className="readme-title">README.md</span>
+            <span className="readme-meta">{t.readmeMeta}</span>
+          </div>
+          <div className="readme-body">
+            {blocks.map((block, index) => {
+              if (block.kind === 'h2') {
+                return <div key={index} className="rm-h2"><span className="rm-h2-bar" /><span>{block.text}</span></div>
+              }
+              if (block.kind === 'p') return <div key={index} className="rm-p">{block.text}</div>
+              if (block.kind === 'li') {
+                return <div key={index} className="rm-li"><CheckIcon size={15} className="rm-li-icon" /><span>{block.text}</span></div>
+              }
+              if (block.kind === 'code') return <div key={index} className="rm-code">{block.text}</div>
+              return <div key={index} className="rm-note"><InfoIcon size={15} className="rm-note-icon" /><span>{block.text}</span></div>
+            })}
+          </div>
+        </main>
+
+        <aside className="detail-rail">
+          <div className="side-card">
+            <div className="evidence-line">
+              <ShieldIcon size={15} className="evidence-icon" />
+              <span className="evidence-text">{evidence}</span>
+            </div>
+            <div className="side-label">{t.willRun}</div>
+            <div className="term-block">$ pnpm add {spec}</div>
+            <span className="side-note">{reloadNote}</span>
+          </div>
+
+          <div className="side-card">
+            <div className="side-label">{t.authorHint}</div>
+            <div className="hint-text">{entry.installHint === undefined || entry.installHint.command === '' ? '—' : entry.installHint.command}</div>
+            <span className="hint-badge">{t.notExecuted}</span>
+          </div>
+
+          <div className="side-card">
+            <div className="side-label">{t.metrics}</div>
+            <div className="metrics-grid">
+              {metrics.map(metric => (
+                <div key={metric.k} className="metric">
+                  <div className="metric-k">{metric.k}</div>
+                  <div className="metric-v">{metric.v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="side-card">
+            <div className="side-label">{t.catTags}</div>
+            <div className="chip-row">
+              {chips.map(chip => <span key={chip} className="chip chip-lg">{chip}</span>)}
+            </div>
+            <div className="side-label side-label-gap">{t.topics}</div>
+            <div className="chip-row">
+              {entry.topics.length > 0
+                ? entry.topics.map(topic => <span key={topic} className="topic-pill">{topic}</span>)
+                : <span className="topic-pill">—</span>}
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  )
+}
+
+// — skeletons & empty states —
+
+function SkeletonCards(): React.ReactElement {
+  return (
+    <div className="grid" aria-busy="true" aria-label="Loading catalog">
+      {Array.from({ length: 9 }, (_, index) => (
+        <div className="card skeleton-card" key={index}>
+          <div className="card-head">
+            <span className="skeleton-block skeleton-mono" />
+            <span className="skeleton-lines">
+              <span className="skeleton-line skeleton-w60" />
+              <span className="skeleton-line skeleton-w40" />
+            </span>
+          </div>
+          <span className="skeleton-line skeleton-w30" />
+          <span className="skeleton-line" />
+          <span className="skeleton-line skeleton-w80" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// — app —
+
+export function App(): React.ReactElement {
+  const [lang, setLang] = useState<Lang>(() => navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en')
+  const [query, setQuery] = useState('')
+  const [tier, setTier] = useState<TierFilter>('all')
+  const [cap, setCap] = useState('all')
+  const [cat, setCat] = useState('all')
+  const [sort, setSort] = useState<SortKey>('stars')
+  const [selId, setSelId] = useState<string | undefined>(() => {
+    // Deep link: `?e=<entry-id>` opens straight into the detail view.
+    const id = new URLSearchParams(window.location.search).get('e')
+    return id === null || id === '' ? undefined : id
+  })
+  const [installed, setInstalled] = useState<Record<string, true>>(loadInstalled)
+  const [entries, setEntries] = useState<readonly CatalogEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [limit, setLimit] = useState(PAGE_SIZE)
+
+  const t = T[lang]
+
+  useEffect(() => {
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
+  }, [lang])
+
+  // The catalog is fetched at runtime: at several MB it has no business being
+  // inlined into the bundle, and serving /v1/index.json doubles as the public
+  // registry document. The empty-entries-plus-not-loading state below is the
+  // fetch-failure UI.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/v1/index.json')
+      .then(async response => {
+        if (!response.ok) throw new Error(`catalog ${response.status}`)
+        return await response.json() as { readonly entries: readonly CatalogEntry[] }
+      })
+      .then(data => { if (!cancelled) { setEntries(data.entries); setLoading(false) } })
+      .catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [])
 
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase()
-    const result = entries.filter((entry) => {
-      if (filter === 'installable' && !entry.tier.startsWith('verified-')) return false
-      if (filter === 'webui' && !entry.hasClient) return false
-      if (filter === 'manual' && entry.installMethod !== 'manual') return false
-      if (normalized.length === 0) return true
-      return [entry.repo, entry.owner, entry.packageName ?? '', entry.description, entry.summary ?? '', entry.summaryEn ?? '', ...entry.tags, ...entry.topics]
-        .some(value => value.toLocaleLowerCase().includes(normalized))
-    })
-    return [...result].sort((a, b) => {
-      if (sort === 'stars') return b.stars - a.stars
-      if (sort === 'updated') return Date.parse(b.pushedAt) - Date.parse(a.pushedAt)
-      return b.score - a.score
-    })
-  }, [filter, query, sort])
+  // Paginate by intersection rather than rendering thousands of cards at once;
+  // any filter change starts the page over from the top.
+  useEffect(() => { setLimit(PAGE_SIZE) }, [query, tier, cap, cat, sort])
+  const listLengthRef = useRef(0)
+  const sentinelObserverRef = useRef<IntersectionObserver | undefined>(undefined)
+  const observeSentinel = useCallback((node: HTMLDivElement | null) => {
+    sentinelObserverRef.current?.disconnect()
+    sentinelObserverRef.current = undefined
+    if (node === null) return
+    const observer = new IntersectionObserver(
+      hits => {
+        if (!hits.some(hit => hit.isIntersecting)) return
+        setLimit(current => current < listLengthRef.current ? current + PAGE_SIZE : current)
+      },
+      { rootMargin: '800px' },
+    )
+    observer.observe(node)
+    sentinelObserverRef.current = observer
+  }, [])
+  useEffect(() => () => { sentinelObserverRef.current?.disconnect() }, [])
 
-  useEffect(() => {
-    if (!filtered.some(entry => entry.id === selectedId)) setSelectedId(filtered[0]?.id)
-  }, [filtered, selectedId])
+  const markInstalled = (id: string): void => {
+    setInstalled(prev => {
+      if (prev[id] === true) return prev
+      const next = { ...prev, [id]: true as const }
+      saveInstalled(next)
+      return next
+    })
+  }
 
-  const active = filtered.find(entry => entry.id === selectedId)
-  const clear = (): void => { setQuery(''); setFilter('all') }
+  const list = useMemo(() => {
+    let result = entries.filter(entry => matches(entry, query))
+    if (tier === 'oneclick') result = result.filter(entry => entry.tier === 'verified-npm' || entry.tier === 'verified-git')
+    else if (tier !== 'all') result = result.filter(entry => entry.tier === tier)
+    if (cap !== 'all') result = result.filter(entry => entry.tags.includes(cap))
+    if (cat !== 'all') result = result.filter(entry => (entry.category ?? 'other') === cat)
+    const sorted = [...result]
+    if (sort === 'stars') sorted.sort((a, b) => b.stars - a.stars)
+    else if (sort === 'fresh') sorted.sort((a, b) => Date.parse(b.pushedAt) - Date.parse(a.pushedAt))
+    else sorted.sort((a, b) => b.score - a.score)
+    return sorted
+  }, [cap, cat, entries, query, sort, tier])
+  listLengthRef.current = list.length
+
+  const facets = useMemo(() => {
+    const count = (fn: (entry: CatalogEntry) => boolean): number => entries.filter(fn).length
+    const tierOptions: FacetOption[] = ([
+      { key: 'all' as const, label: t.all, count: entries.length },
+      { key: 'oneclick' as const, label: t.oneClick, count: count(e => e.tier === 'verified-npm' || e.tier === 'verified-git') },
+      ...(['verified-npm', 'verified-git', 'likely-plugin', 'related'] as const).map(key => ({
+        key: key as string,
+        label: lang === 'en' ? TIERS[key].en : TIERS[key].zh,
+        count: count(e => e.tier === key),
+      })),
+    ]).map(option => ({ ...option, active: tier === option.key, pick: () => { setTier(option.key as TierFilter) } }))
+    const capBase: Array<{ key: string, label: string, count: number }> = [{ key: 'all', label: t.all, count: entries.length }]
+    for (const key of Object.keys(CAPS)) {
+      const n = count(e => e.tags.includes(key))
+      if (n > 0) capBase.push({ key, label: pair(CAPS[key], lang, key), count: n })
+    }
+    const capOptions: FacetOption[] = capBase
+      .map(option => ({ ...option, active: cap === option.key, pick: () => { setCap(option.key) } }))
+    const catBase: Array<{ key: string, label: string, count: number }> = [{ key: 'all', label: t.all, count: entries.length }]
+    for (const key of Object.keys(CATS)) {
+      const n = count(e => (e.category ?? 'other') === key)
+      if (n > 0) catBase.push({ key, label: pair(CATS[key], lang, key), count: n })
+    }
+    const catOptions: FacetOption[] = catBase
+      .map(option => ({ ...option, active: cat === option.key, pick: () => { setCat(option.key) } }))
+    return [
+      { label: t.fTier, options: tierOptions },
+      { label: t.fCap, options: capOptions },
+      { label: t.fCat, options: catOptions },
+    ]
+  }, [cap, cat, entries, lang, t, tier])
+
+  const hasFilters = query.length > 0 || tier !== 'all' || cap !== 'all' || cat !== 'all'
+  const clearAll = (): void => { setQuery(''); setTier('all'); setCap('all'); setCat('all') }
+  const headline = query.length > 0
+    ? (lang === 'en' ? 'Search results' : '搜索结果')
+    : tier === 'oneclick'
+      ? (lang === 'en' ? 'One-click installable' : '可一键安装')
+      : (lang === 'en' ? 'Featured in the catalog' : '目录精选')
+
+  const selected = selId === undefined ? undefined : entries.find(entry => entry.id === selId)
+  const openDetail = (id: string): void => { setSelId(id); window.scrollTo(0, 0) }
+
+  const sorts: ReadonlyArray<{ readonly key: SortKey, readonly label: string }> = [
+    { key: 'score', label: t.sortScore },
+    { key: 'stars', label: t.sortStars },
+    { key: 'fresh', label: t.sortFresh },
+  ]
 
   return (
-    <section className="preview-section" id="market">
-      <div className="preview-intro">
-        <div>
-          <p className="section-kicker"><Package />{t.catalogKicker}</p>
-          <h2>{t.catalogTitle}</h2>
-        </div>
-        <p>{t.catalogBody}</p>
-      </div>
-
-      <div className="market-shell">
-        <div className="market-topbar">
-          <div><Brand compact /><span className="product-slash">/</span><b>Plugin Catalog</b></div>
-          <span className="online-status"><i />{t.liveCatalog}</span>
-          <span className="snapshot">{t.snapshot} · {new Date(__CATALOG_STATS__.generatedAt).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US')}</span>
-        </div>
-
-        {entries.length === 0 ? (
-          <div className="catalog-error" role="alert">
-            <WarningCircle />
-            <strong>{t.catalogErrorTitle}</strong>
-            <p>{t.catalogErrorBody}</p>
-          </div>
+    <>
+      <Background />
+      <div className="site-shell">
+        <Header lang={lang} setLang={setLang} />
+        {selected !== undefined ? (
+          <DetailView
+            entry={selected}
+            lang={lang}
+            installed={installed[selected.id] === true}
+            onBack={() => { setSelId(undefined) }}
+            onCopied={markInstalled}
+          />
         ) : (
-          <div className="market-layout">
-            <div className="catalog-pane">
-              <div className="catalog-controls">
-                <label className="search-field">
-                  <span className="field-label">{t.search}</span>
-                  <span className="search-control"><MagnifyingGlass /><input value={query} onChange={event => { setQuery(event.target.value) }} placeholder={t.search} type="search" /></span>
-                </label>
-                <div className="filter-line">
-                  <div className="filter-group" role="group" aria-label={t.filterLabel}>
-                    {(['installable', 'all', 'webui', 'manual'] as const).map(value => (
-                      <button key={value} type="button" aria-pressed={filter === value} data-active={filter === value ? '' : undefined} onClick={() => { setFilter(value) }}>
-                        {t[value]}
-                      </button>
-                    ))}
-                  </div>
-                  <label className="sort-control"><span className="sr-only">{t.sortLabel}</span>
-                    <select aria-label={t.sortLabel} value={sort} onChange={event => { setSort(event.target.value as Sort) }}>
-                      <option value="score">{t.best}</option>
-                      <option value="stars">{t.starsSort}</option>
-                      <option value="updated">{t.updated}</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="result-line">
-                  <span><b>{loading ? '—' : filtered.length}</b> {t.results}</span>
-                  {(query.length > 0 || filter !== 'all') && <button type="button" onClick={clear}>{t.clear}</button>}
+          <div className="layout">
+            <aside className="rail">
+              {facets.map(facet => <FacetGroup key={facet.label} label={facet.label} options={facet.options} />)}
+              <div className="market-card">
+                <div className="market-card-label">{t.getMarket}</div>
+                <code>$ {marketCommand}</code>
+              </div>
+            </aside>
+            <main className="main">
+              <SearchPill lang={lang} query={query} setQuery={setQuery} />
+              <div className="list-head">
+                <div className="headline">{headline}</div>
+                <div className="result-line">{list.length} {t.results}</div>
+                {hasFilters && (
+                  <button type="button" className="clear-btn" onClick={clearAll}>
+                    <XIcon size={12} />{t.clear}
+                  </button>
+                )}
+                <div className="seg sort-seg" role="group" aria-label="Sort">
+                  {sorts.map(option => (
+                    <button key={option.key} type="button" className="seg-btn" data-on={sort === option.key ? '' : undefined} aria-pressed={sort === option.key} onClick={() => { setSort(option.key) }}>
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-              {loading ? <CatalogSkeleton /> : (
-                <CatalogList language={language} filtered={filtered} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setMobileOpen(true) }} onClear={clear} />
+
+              {entries.length === 0 && !loading ? (
+                <div className="empty-state" role="alert">
+                  <div className="empty-title">{t.errorTitle}</div>
+                  <div className="empty-body">{t.errorBody}</div>
+                </div>
+              ) : loading ? (
+                <SkeletonCards />
+              ) : list.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-title">{t.emptyTitle}</div>
+                  <div className="empty-body">{t.emptyBody.replace('{total}', fmtThousands(stats.total))}</div>
+                  <button type="button" className="btn-primary btn-empty" onClick={clearAll}>{t.clear}</button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid">
+                    {list.slice(0, limit).map(entry => (
+                      <PluginCard
+                        key={entry.id}
+                        entry={entry}
+                        lang={lang}
+                        installed={installed[entry.id] === true}
+                        onOpen={() => { openDetail(entry.id) }}
+                        onCopied={markInstalled}
+                      />
+                    ))}
+                  </div>
+                  {limit < list.length && (
+                    <div className="load-sentinel" ref={observeSentinel}>
+                      {Math.min(limit, list.length)} / {fmtThousands(list.length)}
+                    </div>
+                  )}
+                </>
               )}
-            </div>
-            {loading ? <DetailSkeleton /> : <Detail entry={active} language={language} mobileOpen={mobileOpen} onBack={() => { setMobileOpen(false) }} />}
+            </main>
           </div>
         )}
       </div>
-    </section>
-  )
-}
-
-function TrustStrip({ language }: { readonly language: Language }): React.ReactElement {
-  const t = copy[language]
-  return (
-    <section className="trust-strip">
-      <p className="section-kicker"><ShieldCheck />{t.trustKicker}</p>
-      <h2>{t.trustTitle}</h2>
-      <p>{t.trustBody}</p>
-    </section>
-  )
-}
-
-export function App(): React.ReactElement {
-  const [language, setLanguage] = useState<Language>(() => navigator.language.toLocaleLowerCase().startsWith('zh') ? 'zh' : 'en')
-  const t = copy[language]
-  useEffect(() => { document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en' }, [language])
-
-  return (
-    <IconContext.Provider value={{ size: 18, weight: 'regular', mirrored: false }}>
-      <div className="site-frame">
-        <AppHeader language={language} setLanguage={setLanguage} />
-        <main>
-          <Hero language={language} />
-          <MarketPreview language={language} />
-          <TrustStrip language={language} />
-        </main>
-        <footer>
-          <a href="#top"><Brand compact /></a>
-          <p>{t.footer}</p>
-          <div><a href="https://github.com/NanmiCoder/dsh-plugin-market">GitHub</a><a href="https://www.npmjs.com/package/@nanmicoder/dsh-plugin-market">npm</a></div>
-        </footer>
-      </div>
-    </IconContext.Provider>
+    </>
   )
 }

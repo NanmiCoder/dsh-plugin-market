@@ -440,7 +440,67 @@ check('drops the out-of-vocabulary tag', drift.label?.tags.join(',') === 'git')
 check('reports the dropped tag as drift', drift.droppedTags?.join(',') === 'not-a-real-tag')
 check('caps tags at six', (validateLabel({ ...validLabel, tags: Array(9).fill('git') }).label?.tags.length ?? 9) <= 6)
 check('requires both summaries', 'errors' in validateLabel({ ...validLabel, summaryZh: '' }))
+check('a tag value in the category slot is demoted into tags', (() => {
+  const out = validateLabel({ ...validLabel, category: 'plugin-manager', tags: ['git'] })
+  return out.label?.category === 'other' && out.label.tags.includes('plugin-manager')
+})())
+check('a demoted category value is not reported as dropped',
+  validateLabel({ ...validLabel, category: 'plugin-manager', tags: [] }).droppedCategory === undefined)
+check('a category value in the tag slot is promoted when the slot is free', (() => {
+  const out = validateLabel({ ...validLabel, category: 'invented', tags: ['security'] })
+  return out.label?.category === 'security' && !out.label.tags.includes('security')
+})())
+check('a category value in the tag slot drops when the slot is taken', (() => {
+  const out = validateLabel({ ...validLabel, category: 'coding', tags: ['security'] })
+  return out.label?.category === 'coding' && !out.label.tags.includes('security')
+})())
 check('clamps confidence', validateLabel({ ...validLabel, confidence: 5 }).label?.confidence === 1)
+check('keeps a valid relevance verdict',
+  validateLabel({ ...validLabel, relevance: 'unrelated' }).label?.relevance === 'unrelated')
+check('an invented relevance verdict degrades to absent',
+  validateLabel({ ...validLabel, relevance: 'whatever' }).label?.relevance === undefined)
+check('a missing relevance verdict stays absent',
+  validateLabel(validLabel).label?.relevance === undefined)
+const { dropsAsUnrelated } = await import('../tools/crawler/classify.ts')
+check('unrelated drops a related-tier row', dropsAsUnrelated('related', 'unrelated'))
+check('unrelated drops a likely-plugin row', dropsAsUnrelated('likely-plugin', 'unrelated'))
+check('unrelated never drops a verified row', !dropsAsUnrelated('verified-npm', 'unrelated')
+  && !dropsAsUnrelated('verified-git', 'unrelated'))
+check('adjacent and plugin verdicts never drop', !dropsAsUnrelated('related', 'adjacent')
+  && !dropsAsUnrelated('related', 'plugin'))
+check('an absent verdict never drops', !dropsAsUnrelated('related', undefined))
+
+const { extractDocumentedPackage, documentedNpmUpgrade } = await import('../tools/crawler/classify.ts')
+check('extracts a package from dsh plugin add',
+  extractDocumentedPackage('dsh plugin --profile web add @linxin666/dsh-web-ui-all') === '@linxin666/dsh-web-ui-all')
+check('extracts a package from pnpm add', extractDocumentedPackage('pnpm add @scope/pkg') === '@scope/pkg')
+check('strips a version suffix', extractDocumentedPackage('npm i foo@1.2.3') === 'foo')
+check('no package in prose', extractDocumentedPackage('see the docs for details') === undefined)
+const manualVerdict = {
+  tier: 'related', installMethod: 'manual', runsBuildScript: false, reason: 'test',
+  capabilities: { hasClient: false, hasSkills: false, needsApiKey: false, nativeTs: false },
+}
+const npmLabel = { installMethod: 'npm', installCommand: 'dsh plugin add @scope/pkg' }
+const bundleFacts = { name: '@scope/pkg', version: '1.0.0', hasDshBundle: true, hasClient: true }
+check('a documented bundle upgrades to verified-npm', (() => {
+  const next = documentedNpmUpgrade(manualVerdict, npmLabel, bundleFacts)
+  return next?.tier === 'verified-npm' && next.installSpec === '@scope/pkg' && next.capabilities.hasClient
+})())
+check('no upgrade without dsh.bundle',
+  documentedNpmUpgrade(manualVerdict, npmLabel, { ...bundleFacts, hasDshBundle: false }) === undefined)
+check('no upgrade for an unrelated-judged row',
+  documentedNpmUpgrade(manualVerdict, { ...npmLabel, relevance: 'unrelated' }, bundleFacts) === undefined)
+check('no upgrade without a documented command',
+  documentedNpmUpgrade(manualVerdict, { ...npmLabel, installCommand: '' }, bundleFacts) === undefined)
+
+const { extractInstallExcerpt } = await import('../tools/crawler/label.ts')
+check('carves the install section out of a long README', (() => {
+  const raw = `${'<p align="center">badge soup</p>\n'.repeat(400)}## 从 npm 安装（推荐）\n\ndsh plugin add @scope/pkg\n`
+  return extractInstallExcerpt(raw)?.includes('dsh plugin add @scope/pkg') === true
+})())
+check('finds an english install heading',
+  extractInstallExcerpt('# Intro\n\n## Installation\n\nnpm i foo\n')?.includes('npm i foo') === true)
+check('no install heading yields undefined', extractInstallExcerpt('# Intro\n\njust prose\n') === undefined)
 check('keeps a short readme intact', clipReadme('# Title\n\nShort body.') === '# Title\n\nShort body.')
 check('trims a long readme', clipReadme('x'.repeat(20000)).length < 4200)
 check('strips image markup', !clipReadme('![alt](https://example.com/a.png)\n\ntext').includes('example.com'))

@@ -48,13 +48,13 @@ const LABEL_TOOL: Anthropic.Tool = {
       category: {
         type: 'string',
         enum: [...CATEGORIES],
-        description: 'The single best category. Use "other" only when nothing else fits.',
+        description: 'The single best category — the BROAD area, from this list only. Names like "plugin-manager" or "code-review" are tags, not categories: never emit them here. Use "other" only when nothing else fits.',
       },
       tags: {
         type: 'array',
         items: { type: 'string', enum: [...TAGS] },
         maxItems: 6,
-        description: 'At most 6 tags from the list. Prefer 2-4 precise tags over 6 loose ones.',
+        description: 'At most 6 tags from the list — specific capabilities. Names like "security" or "ui-experience" are categories, not tags: never emit them here. Prefer 2-4 precise tags over 6 loose ones.',
       },
       summaryZh: {
         type: 'string',
@@ -72,6 +72,11 @@ const LABEL_TOOL: Anthropic.Tool = {
         type: 'boolean',
         description: 'True for name-squatting, empty shells, or bulk-generated filler. Judge from evidence: a one-file package with no README claiming a big feature is spam; a small but honest plugin is not.',
       },
+      relevance: {
+        type: 'string',
+        enum: ['plugin', 'adjacent', 'unrelated'],
+        description: 'Whether this repo genuinely belongs to the DeepSeek Harness (DSH) ecosystem. Judge ONLY from the manifest and README — GitHub topics are free to add and are routinely abused for exposure, so a topic alone is evidence of nothing. "plugin": built as a DSH plugin (declares dsh.bundle with a cordis.patch.yml, or depends on the @deepseek-ai/* runtime with an entry point, or its README documents installing into DSH as a plugin). "adjacent": not a plugin, but built PRIMARILY for DSH users — a DSH skills pack, theme, or companion tool that would barely exist without DSH. "unrelated": everything else — in particular any general-purpose tool, agent, skill, or app that supports DSH as ONE of several runtimes or hosts (Claude Code, Codex, OpenClaw, etc.): for those, supporting DSH is a feature, not their purpose. When in doubt between adjacent and unrelated, choose unrelated.',
+      },
       confidence: {
         type: 'number',
         description: 'Between 0 and 1. When the input is thin, lower this rather than inventing detail.',
@@ -79,14 +84,14 @@ const LABEL_TOOL: Anthropic.Tool = {
       installMethod: {
         type: 'string',
         enum: ['npm', 'git', 'manual'],
-        description: 'How the README says to install it. "npm" when a package name is published; "git" when it is cloned and built from source; "manual" when there is no installable artifact at all.',
+        description: 'How the README says to install it. "npm" when the README documents installing a package (an npm add command, or a dsh plugin add of an npm spec); "git" when it is cloned and built from source; "manual" when there is no installable artifact at all.',
       },
       installCommand: {
         type: 'string',
-        description: 'The exact install command the README gives, verbatim, e.g. "npm i @foo/bar" or "dsh plugin add github:a/b". Empty string when the README gives none.',
+        description: 'The exact install command the README gives, verbatim. REQUIRED when installMethod is "npm" or "git" — copy the command line exactly, e.g. "dsh plugin --profile web add @scope/pkg" or "npm i @foo/bar". When the README documents several install paths, report the one it recommends (typically the npm / dsh plugin add path, not the clone-and-build development path). Empty string only when the README documents no install command at all.',
       },
     },
-    required: ['category', 'tags', 'summaryZh', 'summaryEn', 'needsApiKey', 'isSpam', 'confidence', 'installMethod', 'installCommand'],
+    required: ['category', 'tags', 'summaryZh', 'summaryEn', 'needsApiKey', 'isSpam', 'relevance', 'confidence', 'installMethod', 'installCommand'],
   },
 }
 
@@ -98,9 +103,30 @@ const SYSTEM_PROMPT = `You classify plugins for the DeepSeek Harness (DSH) plugi
 
 Call the emit_label tool exactly once with your classification. Do not write prose.
 
-Judge only from the evidence given. A plugin's README and manifest describe what it
-claims to do; the tier and capability facts describe what was verified. When the two
-disagree, weigh the verified facts more heavily.
+Judge only from the evidence given. A plugin's README and install excerpt describe
+what it claims to do; the manifest and registry facts describe what was verified.
+When the two disagree, weigh the verified facts more heavily.
+
+Categories and tags are DIFFERENT vocabularies: a category is the broad area the
+plugin belongs to (one of 13), a tag is a specific capability it has (up to 6).
+Some names exist in only one of the two lists — "plugin-manager" is a tag, never
+a category; "security" and "ui-experience" are categories, never tags. Check
+which list a name belongs to before using it; if none fits, use category "other"
+and fewer tags rather than inventing a value.
+
+What a real DSH plugin looks like: its package.json declares a \`dsh.bundle.patch\`
+pointing at a cordis.patch.yml patch list, or it depends on the @deepseek-ai/* runtime
+and exposes an entry point; its README tells users to install it with \`dsh plugin add\`
+or an equivalent. Some ecosystem projects are not plugins but exist primarily for DSH
+users — DSH-only companion CLIs, skills packs, themes.
+
+Beware exposure farming: repositories add DSH discovery topics so the marketplace
+crawls them, while their content is a generic agent tool, skill, prompt pack, or
+resource list. A topic or a passing mention of DSH is never enough. The most common
+disguise is the multi-host tool: an app or skill that lists DSH as one of several
+supported runtimes (alongside Claude Code, Codex, OpenClaw, and friends). Supporting
+DSH is a feature of those tools, not their purpose — mark them relevance "unrelated".
+Reserve "adjacent" for projects whose primary audience is DSH users.
 
 For installMethod and installCommand, read the README's own installation section and
 report what the author wrote — a package name, a git URL, or nothing. Do not infer an
@@ -171,7 +197,7 @@ export function candidateId(candidate: Candidate): string {
  *
  * READMEs are arbitrary bytes from strangers' repositories. A lone surrogate —
  * half of an emoji pair, usually from a truncated fetch, and this pipeline
- * truncates every README at 8 KB — serializes into an escape the endpoint
+ * truncates every README at 32 KB — serializes into an escape the endpoint
  * rejects outright: `400 … unexpected end of hex escape`. That fails the whole
  * request, so the entry degrades over a single stray byte. Unpaired surrogates
  * and C0 control characters are therefore removed before the text is ever put
@@ -211,6 +237,25 @@ export function clipReadme(raw: string): string {
 }
 
 /**
+ * Carve the install section out of a README, wherever it sits.
+ *
+ * Install instructions are the single most extraction-critical part of a
+ * README, and they have no fixed address: heavy HTML preambles push them past
+ * both the old 8 KB fetch window and clipReadme's head-plus-tail window, which
+ * is how well-documented plugins ended up labelled "manual". Rather than
+ * hoping the section survives the clip, extract it by heading — the first
+ * heading mentioning install/setup/安装-style wording, plus a generous window
+ * after it — and hand it to the model as its own prompt block.
+ * @param raw - the README as fetched.
+ * @returns the excerpt, or undefined when no install heading exists.
+ */
+export function extractInstallExcerpt(raw: string): string | undefined {
+  const heading = /^ {0,3}#{1,6}\s[^\n]*(install|installation|setup|getting started|quick ?start|安装|上手|部署|快速开始|快速上手)[^\n]*$/im.exec(raw)
+  if (heading === null) return undefined
+  return raw.slice(heading.index, heading.index + 1600).trim()
+}
+
+/**
  * Build the per-candidate user message.
  * @param candidate - the candidate.
  * @returns the message text.
@@ -229,7 +274,16 @@ function buildPrompt(candidate: Candidate): string {
     '## MANIFEST',
     `dsh.bundle: ${manifest?.dsh?.bundle?.patch ?? '(absent)'}`,
     `browser half: ${manifest?.dsh?.client !== undefined || manifest?.dshClient !== undefined ? 'yes' : 'no'}`,
-    `peerDependencies: ${Object.keys(manifest?.peerDependencies ?? {}).join(', ') || '(none)'}`,
+    `@deepseek-ai runtime dependency: ${Object.keys({ ...manifest?.dependencies, ...manifest?.peerDependencies }).some(name => name.startsWith('@deepseek-ai/')) ? 'yes' : 'no'}`,
+    `dependencies: ${Object.keys({ ...manifest?.dependencies, ...manifest?.peerDependencies }).slice(0, 20).join(', ') || '(none)'}`,
+    '',
+    '## NPM REGISTRY (what an install would place on disk)',
+    candidate.npm === undefined
+      ? 'unpublished, or the registry lookup failed'
+      : `published as ${candidate.npm.name}@${candidate.npm.version}; declares dsh.bundle: ${candidate.npm.hasDshBundle ? 'yes' : 'no'}; browser half: ${candidate.npm.hasClient ? 'yes' : 'no'}`,
+    '',
+    '## README — INSTALL SECTION (verbatim excerpt, trust it for installMethod/installCommand)',
+    candidate.readme === undefined ? '(no README found)' : (extractInstallExcerpt(candidate.readme.text) ?? '(no install heading found)'),
     '',
     '## README',
     candidate.readme === undefined ? '(no README found)' : clipReadme(candidate.readme.text),
@@ -271,13 +325,36 @@ export function validateLabel(
   const row = value as Record<string, unknown>
   const offeredCategory = typeof row.category === 'string' ? row.category : ''
   const categoryOk = (CATEGORIES as readonly string[]).includes(offeredCategory)
-  const category = categoryOk ? offeredCategory : 'other'
-  const droppedCategory = categoryOk || offeredCategory === '' ? undefined : offeredCategory
+  let category = categoryOk ? offeredCategory : 'other'
   const offered = Array.isArray(row.tags)
     ? row.tags.filter((tag): tag is string => typeof tag === 'string')
     : []
-  const tags = offered.filter(tag => (TAGS as readonly string[]).includes(tag)).slice(0, 6)
-  const droppedTags = offered.filter(tag => !(TAGS as readonly string[]).includes(tag))
+  const tags: string[] = []
+  const droppedTags: string[] = []
+  // Cross-slot recovery before any dropping: the model systematically confuses
+  // the two vocabularies (measured: "plugin-manager" emitted as a category 155
+  // times in one sweep, "security" as a tag 184 times). Both values are ours —
+  // moving one to its right slot recovers the signal that dropping would lose.
+  for (const tag of offered) {
+    if ((TAGS as readonly string[]).includes(tag)) {
+      if (!tags.includes(tag)) tags.push(tag)
+      continue
+    }
+    if ((CATEGORIES as readonly string[]).includes(tag) && category === 'other') {
+      // A category value in the tag slot, with the category slot free: promote.
+      category = tag
+      continue
+    }
+    droppedTags.push(tag)
+  }
+  if (!categoryOk && (TAGS as readonly string[]).includes(offeredCategory)) {
+    // A tag value in the category slot: demote it into the tag list.
+    if (!tags.includes(offeredCategory)) tags.unshift(offeredCategory)
+  }
+  const droppedCategory = categoryOk || offeredCategory === '' || (TAGS as readonly string[]).includes(offeredCategory)
+    ? undefined
+    : offeredCategory
+  const finalTags = tags.slice(0, 6)
   const summaryZh = typeof row.summaryZh === 'string' ? row.summaryZh.trim() : ''
   const summaryEn = typeof row.summaryEn === 'string' ? row.summaryEn.trim() : ''
   if (summaryZh === '') errors.push('summaryZh is required')
@@ -293,15 +370,23 @@ export function validateLabel(
   const installCommand = typeof row.installCommand === 'string' ? row.installCommand.trim() : ''
 
   if (errors.length > 0) return { errors }
+  // relevance gates publication but is never load-bearing for the label itself:
+  // an absent or invented verdict leaves the entry published, so a model that
+  // reaches outside the enum cannot silently empty the catalog.
+  const offeredRelevance = typeof row.relevance === 'string' ? row.relevance : ''
+  const relevance = (['plugin', 'adjacent', 'unrelated'] as const).includes(offeredRelevance as never)
+    ? offeredRelevance as 'plugin' | 'adjacent' | 'unrelated'
+    : undefined
   return {
     droppedCategory,
     label: {
       category,
-      tags,
+      tags: finalTags,
       summaryZh,
       summaryEn,
       needsApiKey: row.needsApiKey === true,
       isSpam: row.isSpam === true,
+      relevance,
       confidence: typeof row.confidence === 'number' ? Math.max(0, Math.min(1, row.confidence)) : 0.5,
       installMethod,
       installCommand,
@@ -316,6 +401,14 @@ export interface LabelOptions {
   readonly previous: Map<string, CachedLabel>
   readonly force: boolean
   readonly log: (line: string) => void
+  /**
+   * Optional incremental persistence: `write` is invoked with the labels
+   * accumulated so far (cached + fresh + degraded) after every `every`
+   * completions. A full re-label runs for tens of minutes and its results are
+   * otherwise only persisted at emit, so a killed process would lose every
+   * computed label. Checkpoints let the next run resume from the cache.
+   */
+  readonly checkpoint?: { readonly every: number, readonly write: (labels: Map<string, CachedLabel>) => void }
 }
 
 /** Outcome of a labelling pass. */
@@ -363,31 +456,36 @@ export async function labelAll(
   let failed = 0
   let inputTokens = 0
   let outputTokens = 0
+  let completed = 0
 
-  const results = await mapLimit(todo, async (candidate) => {
+  await mapLimit(todo, async (candidate) => {
     const outcome = await labelOne(anthropic, candidate, options.log)
+    const id = candidateId(candidate)
+    const key = cacheKey(candidate)
     if (outcome !== undefined) {
       inputTokens += outcome.inputTokens
       outputTokens += outcome.outputTokens
+      labels.set(id, { ...outcome.label, key })
+    } else {
+      failed += 1
+      // Degrade rather than drop: a previous label, else a rule-derived
+      // placeholder, so a model outage never empties the catalog.
+      const previous = options.previous.get(id)
+      labels.set(id, previous !== undefined
+        ? { ...previous, key, stale: true }
+        : { ...fallbackLabel(candidate), key, stale: true })
     }
-    return { candidate, label: outcome?.label }
+    completed += 1
+    if (options.checkpoint !== undefined && completed % options.checkpoint.every === 0) {
+      try {
+        options.checkpoint.write(labels)
+        options.log(`label: checkpoint at ${completed}/${todo.length}`)
+      } catch {
+        // A failed checkpoint must not void the run it protects.
+      }
+    }
   }, LLM_CONCURRENCY)
 
-  for (const { candidate, label } of results) {
-    const id = candidateId(candidate)
-    const key = cacheKey(candidate)
-    if (label !== undefined) {
-      labels.set(id, { ...label, key })
-      continue
-    }
-    failed += 1
-    // Degrade rather than drop: a previous label, else a rule-derived
-    // placeholder, so a model outage never empties the catalog.
-    const previous = options.previous.get(id)
-    labels.set(id, previous !== undefined
-      ? { ...previous, key, stale: true }
-      : { ...fallbackLabel(candidate), key, stale: true })
-  }
   return { labels, called: todo.length, cached: candidates.length - todo.length, failed, inputTokens, outputTokens }
 }
 
@@ -405,6 +503,11 @@ async function labelOne(
     const message = await anthropic.messages.create({
       model: LLM_MODEL,
       max_tokens: 1024,
+      // Classification, not creative writing: pin the temperature so the same
+      // README yields the same verdict. Without this the endpoint default made
+      // relevance judgements jitter run to run (open-design was judged
+      // "unrelated" in one pass and "adjacent" in the next).
+      temperature: 0,
       system: SYSTEM_PROMPT,
       // Forced tool choice is rejected while thinking is on, and classification
       // does not need reasoning — the thinking tokens would dominate the bill.

@@ -1,10 +1,12 @@
-/* Shared primitives: icons and the metric cell. */
+/* Shared primitives: icons, the metric cell, and the terminal surface. */
 
 .icon {
   display: block;
   flex: none;
 }
 
+/* Metrics are plain label-over-value cells: a quiet mono readout, not a wall
+   of bordered boxes. */
 .metric {
   display: flex;
   flex-direction: column;
@@ -13,9 +15,8 @@
 }
 
 .metricLabel {
-  color: var(--ds-text-tertiary, #a1a1aa);
-  font-size: 10px;
-  letter-spacing: 0.03em;
+  color: var(--plugin-hub-text-3, var(--ds-text-tertiary, #868d9b));
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
@@ -24,11 +25,75 @@
 .metricValue {
   margin: 0;
   overflow: hidden;
-  color: var(--ds-text-primary, inherit);
-  font-family: var(--plugin-hub-mono, ui-monospace, monospace);
-  font-size: 12.5px;
+  color: var(--plugin-hub-text, var(--ds-text-primary, #212327));
+  font-family: var(--plugin-hub-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 14px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---- Terminal surface (shared by install cards and dialogs) -------------- */
+
+/* A command block that looks like a terminal: dark ink in both themes, mono,
+   with the copy button riding the top-right corner. */
+.terminal {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--plugin-hub-terminal, #212327);
+}
+
+.terminalBody {
+  margin: 0;
+  /* The right padding keeps one-line commands clear of the copy button. */
+  padding: 11px 72px 11px 13px;
+  overflow-x: auto;
+  color: var(--plugin-hub-terminal-text, #a9b8ff);
+  font-family: var(--plugin-hub-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+.copyButton {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 4%);
+  color: rgb(255 255 255 / 58%);
+  font: inherit;
+  font-size: 10.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--plugin-hub-fast, 150ms) var(--plugin-hub-ease, ease),
+    border-color var(--plugin-hub-fast, 150ms) var(--plugin-hub-ease, ease),
+    background var(--plugin-hub-fast, 150ms) var(--plugin-hub-ease, ease);
+}
+
+.copyButton:hover {
+  border-color: rgb(255 255 255 / 30%);
+  background: rgb(255 255 255 / 8%);
+  color: rgb(255 255 255 / 88%);
+}
+
+.copyButton:focus-visible {
+  outline: 2px solid #a9b8ff;
+  outline-offset: 2px;
+}
+
+/* The copied flash uses the pale blue of the terminal text itself. */
+.copyButton[data-copied] {
+  border-color: color-mix(in srgb, #a9b8ff 45%, transparent);
+  color: #a9b8ff;
 }

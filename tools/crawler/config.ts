@@ -44,7 +44,7 @@ export const SEARCH_CEILING = 1000
 export const PAGE_SIZE = 25
 
 /** Bytes of README pulled per candidate (via a ranged raw request). */
-export const README_BYTES = 8192
+export const README_BYTES = 32768
 
 /** README filenames tried, in order. */
 export const README_CANDIDATES = [
@@ -92,7 +92,7 @@ export const TAGS = [
 ] as const
 
 /** Bumped when the prompt changes; invalidates every cached label. */
-export const PROMPT_VERSION = 'p2'
+export const PROMPT_VERSION = 'p7'
 
 /** Bumped when CATEGORIES or TAGS change; invalidates every cached label. */
 export const VOCAB_VERSION = 'v1'
