@@ -1,4 +1,4 @@
-name: Verify and Deploy WebUI
+name: Verify WebUI
 
 on:
   push:
@@ -6,17 +6,10 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: vercel-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  deploy:
+  verify:
     if: github.repository == 'NanmiCoder/dsh-plugin-market'
     runs-on: ubuntu-latest
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -28,7 +21,7 @@ jobs:
           package-manager-cache: false
 
       - name: Install pinned toolchain
-        run: npm install --global pnpm@10.33.0 vercel@59.1.3
+        run: npm install --global pnpm@10.33.0
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -37,34 +30,8 @@ jobs:
         run: |
           pnpm build
           pnpm verify
+          pnpm site:build
 
-      - name: Select Vercel environment
-        id: target
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
-            echo "environment=production" >> "${GITHUB_OUTPUT}"
-            echo "flags=--prod" >> "${GITHUB_OUTPUT}"
-          else
-            echo "environment=preview" >> "${GITHUB_OUTPUT}"
-            echo "flags=" >> "${GITHUB_OUTPUT}"
-          fi
-
-      - name: Pull Vercel project settings
-        run: >-
-          vercel pull --yes
-          --environment=${{ steps.target.outputs.environment }}
-          --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Build WebUI for Vercel
-        run: >-
-          vercel build
-          ${{ steps.target.outputs.flags }}
-          --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Deploy prebuilt WebUI
-        shell: bash
-        run: |
-          deployment_url="$(vercel deploy --prebuilt ${{ steps.target.outputs.flags }} --token=${{ secrets.VERCEL_TOKEN }})"
-          echo "Deployed ${deployment_url}"
-          echo "::notice title=Vercel deployment::${deployment_url}"
+# Deployment is handled by Vercel's native GitHub integration: every push to
+# main builds and ships production automatically (Project Settings → Git).
+# No tokens or secrets are needed here.
