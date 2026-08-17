@@ -14,7 +14,7 @@ interface CatalogEntry {
   readonly id: string
   readonly repo: string
   readonly owner: string
-  readonly url: string
+  readonly url?: string
   readonly tier: Tier
   readonly packageName?: string
   readonly installMethod: 'npm' | 'git' | 'manual'
@@ -530,7 +530,7 @@ function readmeBlocks(entry: CatalogEntry, lang: Lang): Block[] {
   } else if (entry.tier === 'verified-git') {
     blocks.push({
       kind: 'code',
-      text: `$ pnpm add ${entry.installSpec ?? entry.url}\n# ${zh ? '安装时会执行仓库的构建脚本' : 'the repository build script runs on install'}`,
+      text: `$ pnpm add ${entry.installSpec ?? entry.url ?? `github:${entry.repo}`}\n# ${zh ? '安装时会执行仓库的构建脚本' : 'the repository build script runs on install'}`,
     })
   } else {
     blocks.push({ kind: 'code', text: `$ git clone https://github.com/${entry.repo}\n$ cd ${name} && pnpm i && pnpm build` })
@@ -660,7 +660,7 @@ function DetailView({ entry, lang, installed, onBack, onCopied }: {
             </span>
             {installed && <span className="installed-pill">{t.installed}</span>}
           </div>
-          <a className="repo-link" href={entry.url} target="_blank" rel="noreferrer">
+          <a className="repo-link" href={entry.url ?? `https://github.com/${entry.repo}`} target="_blank" rel="noreferrer">
             {entry.repo}
             <ExternalIcon size={12} />
           </a>
